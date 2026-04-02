@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
-import { Loader2, Plus, AlertCircle, CheckCircle2, Trash2, Edit2, ChevronsUpDown, Check, UploadCloud, Star } from 'lucide-react'
+import { Loader2, Plus, AlertCircle, CheckCircle2, Trash2, Edit2, ChevronsUpDown, Check, UploadCloud, Star, ChevronLeft, ChevronRight, X, ArrowRightLeft } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
 import { addStudent, updateStudent, deleteStudent } from '../actions'
 
@@ -29,6 +29,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
 const MAX_FILE_SIZE = 5000000
@@ -82,6 +83,12 @@ export function AlumniManagerClient({
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success', message: string } | null>(null)
   const [photoRemoved, setPhotoRemoved] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isAlert?: boolean } | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [bulkBatchId, setBulkBatchId] = useState('')
+  const [isBulkMoving, setIsBulkMoving] = useState(false)
+  const PAGE_SIZE = 10
 
   function showAlert(title: string, message: string) {
     setConfirmDialog({ isOpen: true, title, message, onConfirm: () => { }, isAlert: true })
@@ -203,6 +210,84 @@ export function AlumniManagerClient({
     return b ? `${b.year} — ${b.name}` : 'Unknown'
   }
 
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(initialStudents.length / PAGE_SIZE))
+  const paginatedStudents = initialStudents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const pageIds = paginatedStudents.map(s => s.id)
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id))
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (allPageSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        pageIds.forEach(id => next.delete(id))
+        return next
+      })
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        pageIds.forEach(id => next.add(id))
+        return next
+      })
+    }
+  }
+
+  function handleBulkDelete() {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Bulk Delete',
+      message: `Are you sure you want to delete ${selectedIds.size} selected alumni profile(s)? This action is irreversible.`,
+      onConfirm: async () => {
+        setIsBulkDeleting(true)
+        const ids = Array.from(selectedIds)
+        for (const id of ids) {
+          try {
+            const res = await deleteStudent(id)
+            if (!res?.error) {
+              setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n })
+            }
+          } catch { /* skip */ }
+        }
+        setIsBulkDeleting(false)
+        if (currentPage > 1 && paginatedStudents.length <= selectedIds.size) {
+          setCurrentPage(p => Math.max(1, p - 1))
+        }
+      }
+    })
+  }
+
+  async function handleBulkMoveBatch() {
+    if (!bulkBatchId) return
+    setIsBulkMoving(true)
+    const ids = Array.from(selectedIds)
+    for (const id of ids) {
+      const student = initialStudents.find(s => s.id === id)
+      if (!student) continue
+      try {
+        await updateStudent(id, {
+          name: student.name,
+          batch_id: bulkBatchId,
+          description: student.description || undefined,
+          phone_number: student.phone_number || undefined,
+          is_representative: student.is_representative,
+          photo_url: student.photo_url || undefined,
+        })
+      } catch { /* skip */ }
+    }
+    setSelectedIds(new Set())
+    setBulkBatchId('')
+    setIsBulkMoving(false)
+  }
+
   const existingPhotoUrl = editingId && !photoRemoved
     ? initialStudents.find(s => s.id === editingId)?.photo_url
     : null;
@@ -215,14 +300,61 @@ export function AlumniManagerClient({
 
   return (
     <div className="bg-card rounded-xl border shadow-sm w-full mx-auto">
-      <div className="p-5 border-b flex justify-between items-center bg-muted/20">
-        <h3 className="font-semibold text-lg">Alumni Profiles</h3>
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-          <Button size="sm" className="gap-2" onClick={openCreate}>
-            <Plus className="size-4" /> Add Alumni
+      {/* Header: toggles between title and selection bar */}
+      {selectedIds.size > 0 ? (
+        <div className="p-4 px-5 border-b flex items-center gap-3 bg-muted/30">
+          <Checkbox checked={allPageSelected} onCheckedChange={toggleSelectAll} />
+          <span className="text-sm font-semibold tabular-nums">
+            {selectedIds.size} selected
+          </span>
+          <div className="w-px h-5 bg-border" />
+          <div className="flex items-center gap-1.5">
+            <Select value={bulkBatchId} onValueChange={(val) => setBulkBatchId(val || '')}>
+              <SelectTrigger className="h-8 w-[180px] text-xs">
+                {bulkBatchId
+                  ? (() => { const b = batches.find(b => b.id === bulkBatchId); return b ? `${b.year} — ${b.name}` : 'Select' })()
+                  : <span className="text-muted-foreground">Move to batch…</span>
+                }
+              </SelectTrigger>
+              <SelectContent>
+                {batches.map(b => (
+                  <SelectItem key={b.id} value={b.id}>{b.year} — {b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleBulkMoveBatch} disabled={!bulkBatchId || isBulkMoving}>
+              {isBulkMoving ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowRightLeft className="size-3.5" />}
+              Move
+            </Button>
+          </div>
+          <div className="w-px h-5 bg-border" />
+          <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleBulkDelete} disabled={isBulkDeleting}>
+            {isBulkDeleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            Delete
           </Button>
+          <Button variant="ghost" size="icon" className="ml-auto h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => { setSelectedIds(new Set()); setBulkBatchId('') }}>
+            <X className="size-4" />
+          </Button>
+        </div>
+      ) : (
+        <div className="p-5 border-b flex justify-between items-center bg-muted/20">
+          <h3 className="font-semibold text-lg">Alumni Profiles</h3>
+          <div className="flex items-center gap-2">
+            <a href="/admin/alumni/import">
+              <Button variant="outline" size="sm" className="gap-2">
+                <UploadCloud className="size-4" /> Import File
+              </Button>
+            </a>
+            <Button size="sm" className="gap-2" onClick={openCreate}>
+              <Plus className="size-4" /> Add Alumni
+            </Button>
+          </div>
+        </div>
+      )}
 
-          <DialogContent className="sm:max-w-[600px] h-[90vh] sm:h-auto overflow-y-auto">
+      {/* Dialog rendered outside header so it's always accessible */}
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="sm:max-w-[600px] h-[90vh] sm:h-auto overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingId ? 'Edit Alumni Profile' : 'Add Alumni Profile'}</DialogTitle>
               <DialogDescription>
@@ -445,14 +577,16 @@ export function AlumniManagerClient({
                 </div>
               </form>
             </Form>
-          </DialogContent>
-        </Dialog>
-      </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="overflow-x-auto">
         <Table>
           <TableHeader className="bg-muted/30">
             <TableRow>
+              <TableHead className="w-[40px]">
+                <Checkbox checked={allPageSelected} onCheckedChange={toggleSelectAll} />
+              </TableHead>
               <TableHead>Alumni Name</TableHead>
               <TableHead>Batch</TableHead>
               <TableHead>Contact</TableHead>
@@ -462,13 +596,16 @@ export function AlumniManagerClient({
           <TableBody>
             {initialStudents.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center h-32 text-muted-foreground">
+                <TableCell colSpan={5} className="text-center h-32 text-muted-foreground">
                   No alumni found in the system.
                 </TableCell>
               </TableRow>
             ) : (
-              initialStudents.map((student) => (
-                <TableRow key={student.id}>
+              paginatedStudents.map((student) => (
+                <TableRow key={student.id} className={cn(selectedIds.has(student.id) && 'bg-primary/5')}>
+                  <TableCell>
+                    <Checkbox checked={selectedIds.has(student.id)} onCheckedChange={() => toggleSelect(student.id)} />
+                  </TableCell>
                   <TableCell className="font-medium whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       {student.name}
@@ -515,6 +652,21 @@ export function AlumniManagerClient({
           </TableBody>
         </Table>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-5 py-3 border-t text-sm text-muted-foreground">
+          <span>Page {currentPage} of {totalPages} ({initialStudents.length} total)</span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)}>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => p + 1)}>
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Confirm/Alert Dialog */}
       {confirmDialog && (

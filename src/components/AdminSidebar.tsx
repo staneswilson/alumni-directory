@@ -18,6 +18,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar"
 
 const navItems = [
@@ -52,6 +53,7 @@ export function AdminSidebar({
   const [isOpen, setIsOpen] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [pwdFeedback, setPwdFeedback] = useState<{ type: 'error' | 'success', msg: string } | null>(null)
+  const { setOpenMobile } = useSidebar()
   const [newPassword, setNewPassword] = useState('')
 
   async function handlePasswordChange(e: React.FormEvent) {
@@ -102,6 +104,7 @@ export function AdminSidebar({
                     isActive={pathname === item.href}
                     tooltip={item.title}
                     render={<Link href={item.href} />}
+                    onClick={() => setOpenMobile(false)}
                   >
                     <item.icon className="size-4" />
                     <span>{item.title}</span>
@@ -117,7 +120,10 @@ export function AdminSidebar({
         <SidebarSeparator className="mb-2" />
         <div className="px-2 space-y-1">
           <button
-            onClick={() => setIsOpen(true)}
+            onClick={() => {
+              setIsOpen(true)
+              setOpenMobile(false)
+            }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors overflow-hidden"
           >
             <KeyRound className="size-4 shrink-0" />

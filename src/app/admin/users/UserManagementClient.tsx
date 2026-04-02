@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
-import { Loader2, Plus, AlertCircle, CheckCircle2, Trash2, ChevronsUpDown, Check } from 'lucide-react'
+import { Loader2, Plus, AlertCircle, CheckCircle2, Trash2, ChevronsUpDown, Check, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { createAdminUser, deleteAdminRole } from '../actions'
 
 import { Button } from '@/components/ui/button'
@@ -41,6 +41,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Popover,
   PopoverContent,
@@ -99,6 +100,10 @@ export function UserManagementClient({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success', message: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isAlert?: boolean } | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const PAGE_SIZE = 10
 
   function showAlert(title: string, message: string) {
     setConfirmDialog({ isOpen: true, title, message, onConfirm: () => {}, isAlert: true })
@@ -167,6 +172,40 @@ export function UserManagementClient({
     if (!id) return 'Super Access'
     const b = batches.find(b => b.id === id)
     return b ? `${b.year} — ${b.name}` : 'Unknown Batch'
+  }
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(initialAdmins.length / PAGE_SIZE))
+  const paginatedAdmins = initialAdmins.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const pageIds = paginatedAdmins.filter(a => a.user_id !== currentUserId).map(a => a.id)
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id))
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
+  function toggleSelectAll() {
+    if (allPageSelected) {
+      setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.delete(id)); return n })
+    } else {
+      setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.add(id)); return n })
+    }
+  }
+  function handleBulkRevoke() {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Bulk Revoke Roles',
+      message: `Revoke admin access for ${selectedIds.size} selected user(s)?`,
+      onConfirm: async () => {
+        setIsBulkDeleting(true)
+        for (const id of Array.from(selectedIds)) {
+          try {
+            const res = await deleteAdminRole(id)
+            if (!res?.error) setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n })
+          } catch { /* skip */ }
+        }
+        setIsBulkDeleting(false)
+      }
+    })
   }
 
   return (
@@ -317,10 +356,46 @@ export function UserManagementClient({
         </Dialog>
       </div>
       
+      {/* Bulk Action Bar */}
+      {selectedIds.size > 0 && (
+        <div className="bg-zinc-900 dark:bg-zinc-800 text-white rounded-xl px-5 py-3 flex items-center gap-4 shadow-lg">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="size-7 rounded-md bg-white/15 flex items-center justify-center text-xs font-bold tabular-nums">
+              {selectedIds.size}
+            </div>
+            <span className="text-sm font-medium text-zinc-300">
+              {selectedIds.size === 1 ? 'admin' : 'admins'} selected
+            </span>
+          </div>
+
+          <div className="w-px h-6 bg-zinc-700 shrink-0" />
+
+          <Button
+            size="sm"
+            className="h-8 bg-red-500/90 hover:bg-red-500 text-white border-0 gap-1.5 text-xs transition-colors"
+            onClick={handleBulkRevoke}
+            disabled={isBulkDeleting}
+          >
+            {isBulkDeleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            Revoke Access
+          </Button>
+
+          <button
+            className="ml-auto size-7 rounded-md flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+            onClick={() => setSelectedIds(new Set())}
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <Table>
           <TableHeader className="bg-muted/30">
             <TableRow>
+              <TableHead className="w-[40px]">
+                <Checkbox checked={allPageSelected} onCheckedChange={toggleSelectAll} />
+              </TableHead>
               <TableHead className="w-[300px]">User Account</TableHead>
               <TableHead>System Role</TableHead>
               <TableHead>Assignment</TableHead>
@@ -330,13 +405,20 @@ export function UserManagementClient({
           <TableBody>
             {initialAdmins.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center h-32 text-muted-foreground">
+                <TableCell colSpan={5} className="text-center h-32 text-muted-foreground">
                   No administrators found in the system.
                 </TableCell>
               </TableRow>
             ) : (
-              initialAdmins.map((admin) => (
-                <TableRow key={admin.id}>
+              paginatedAdmins.map((admin) => (
+                <TableRow key={admin.id} className={cn(selectedIds.has(admin.id) && 'bg-primary/5')}>
+                  <TableCell>
+                    <Checkbox 
+                      checked={selectedIds.has(admin.id)} 
+                      onCheckedChange={() => toggleSelect(admin.id)} 
+                      disabled={admin.user_id === currentUserId}
+                    />
+                  </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground truncate max-w-[280px]">
                     {admin.email || admin.user_id}
                   </TableCell>
@@ -370,6 +452,23 @@ export function UserManagementClient({
           </TableBody>
         </Table>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-5 py-3 border-t text-sm text-muted-foreground">
+          <span>Page {currentPage} of {totalPages} ({initialAdmins.length} total)</span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)}>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => p + 1)}>
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+
 
       {/* Confirm/Alert Dialog */}
       {confirmDialog && (

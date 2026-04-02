@@ -32,6 +32,7 @@ export default function PublicSearch() {
   const [recentBatches, setRecentBatches] = useState<BatchSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [hasSearched, setHasSearched] = useState(false)
+  const [targetStudentId, setTargetStudentId] = useState<string | null>(null)
   const supabase = createClient()
 
   const fetchRecentBatches = async () => {
@@ -51,14 +52,20 @@ export default function PublicSearch() {
     setLoading(false)
   }
 
-  const handleSearch = async (e?: React.FormEvent) => {
+  const handleSearch = async (e?: React.FormEvent, overrideQuery?: string) => {
     if (e) e.preventDefault()
 
+    const searchQuery = overrideQuery !== undefined ? overrideQuery : query
+
     // If empty query, revert to showing recent batches
-    if (!query.trim()) {
+    if (!searchQuery.trim()) {
       setHasSearched(false)
       if (recentBatches.length === 0) fetchRecentBatches()
       return
+    }
+
+    if (overrideQuery !== undefined) {
+      setQuery(overrideQuery)
     }
 
     setHasSearched(true)
@@ -72,11 +79,11 @@ export default function PublicSearch() {
       `)
       .order('name', { ascending: true })
 
-    const isNumber = !isNaN(Number(query.trim()))
+    const isNumber = !isNaN(Number(searchQuery.trim()))
     if (isNumber) {
-      supabaseQuery = supabaseQuery.eq('batches.year', Number(query.trim()))
+      supabaseQuery = supabaseQuery.eq('batches.year', Number(searchQuery.trim()))
     } else {
-      supabaseQuery = supabaseQuery.ilike('name', `%${query.trim()}%`)
+      supabaseQuery = supabaseQuery.ilike('name', `%${searchQuery.trim()}%`)
     }
 
     const { data, error } = await supabaseQuery
@@ -97,6 +104,25 @@ export default function PublicSearch() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchRecentBatches()
   }, [])
+
+  useEffect(() => {
+    if (!loading && results.length > 0 && targetStudentId) {
+      setTimeout(() => {
+        const element = document.getElementById(`student-${targetStudentId}`)
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          
+          // Add highlighting effect
+          element.classList.add('ring-2', 'ring-[#d4af37]', 'ring-offset-2', 'ring-offset-background', 'scale-[1.02]', 'shadow-lg', 'shadow-[#d4af37]/20')
+          
+          setTimeout(() => {
+            element.classList.remove('ring-2', 'ring-[#d4af37]', 'ring-offset-2', 'ring-offset-background', 'scale-[1.02]', 'shadow-lg', 'shadow-[#d4af37]/20')
+          }, 2000)
+        }
+        setTargetStudentId(null)
+      }, 100)
+    }
+  }, [loading, results.length, targetStudentId])
 
   return (
     <>
@@ -200,8 +226,7 @@ export default function PublicSearch() {
                     <div
                       key={batch.id}
                       onClick={() => {
-                        setQuery(String(batch.year))
-                        handleSearch()
+                        handleSearch(undefined, String(batch.year))
                       }}
                       className="group cursor-pointer bg-card/60 backdrop-blur-md border border-border rounded-2xl p-6 hover:border-[#d4af37]/40 hover:-translate-y-1 transition-all duration-300 shadow-xl"
                     >
@@ -273,9 +298,10 @@ export default function PublicSearch() {
                 {!loading && results.map((student) => (
                   <div
                     key={student.id}
+                    id={`student-${student.id}`}
                     onClick={() => {
-                      setQuery(String(student.batches.year))
-                      handleSearch()
+                      setTargetStudentId(student.id)
+                      handleSearch(undefined, String(student.batches.year))
                     }}
                     className="group cursor-pointer flex flex-row items-center bg-card/60 backdrop-blur-md border border-border rounded-2xl overflow-hidden hover:border-[#d4af37]/60 transition-all duration-300 shadow-sm hover:shadow-md hover:-translate-y-1 p-4"
                   >

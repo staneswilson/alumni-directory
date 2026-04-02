@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
-import { Loader2, Plus, AlertCircle, CheckCircle2, Trash2, Edit2 } from 'lucide-react'
+import { Loader2, Plus, AlertCircle, CheckCircle2, Trash2, Edit2, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { addBatch, updateBatch, deleteBatch } from '../actions'
 
 import { Button } from '@/components/ui/button'
@@ -32,6 +32,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Checkbox } from '@/components/ui/checkbox'
+import { cn } from '@/lib/utils'
 
 const formSchema = z.object({
   year: z.string().min(4, 'Enter a valid year.').regex(/^\d{4}$/, 'Must be a 4-digit year.'),
@@ -55,6 +57,10 @@ export function BatchesManagerClient({
   const [actionId, setActionId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ type: 'error' | 'success', message: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isAlert?: boolean } | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const PAGE_SIZE = 10
 
   function showAlert(title: string, message: string) {
     setConfirmDialog({ isOpen: true, title, message, onConfirm: () => {}, isAlert: true })
@@ -129,16 +135,68 @@ export function BatchesManagerClient({
     })
   }
 
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(initialBatches.length / PAGE_SIZE))
+  const paginatedBatches = initialBatches.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const pageIds = paginatedBatches.map(b => b.id)
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id))
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
+  function toggleSelectAll() {
+    if (allPageSelected) {
+      setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.delete(id)); return n })
+    } else {
+      setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.add(id)); return n })
+    }
+  }
+  function handleBulkDelete() {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Bulk Delete Batches',
+      message: `Delete ${selectedIds.size} selected batch(es)? This may fail if batches have linked alumni.`,
+      onConfirm: async () => {
+        setIsBulkDeleting(true)
+        for (const id of Array.from(selectedIds)) {
+          try {
+            const res = await deleteBatch(id)
+            if (!res?.error) setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n })
+          } catch { /* skip */ }
+        }
+        setIsBulkDeleting(false)
+      }
+    })
+  }
+
   return (
     <div className="bg-card rounded-xl border shadow-sm w-full mx-auto">
-      <div className="p-5 border-b flex justify-between items-center bg-muted/20">
-        <h3 className="font-semibold text-lg">Manage Batches</h3>
-        <Button size="sm" className="gap-2" onClick={openCreate}>
-          <Plus className="size-4" /> Create Batch
-        </Button>
+      {selectedIds.size > 0 ? (
+        <div className="p-4 px-5 border-b flex items-center gap-3 bg-muted/30">
+          <Checkbox checked={allPageSelected} onCheckedChange={toggleSelectAll} />
+          <span className="text-sm font-semibold tabular-nums">
+            {selectedIds.size} selected
+          </span>
+          <div className="w-px h-5 bg-border" />
+          <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleBulkDelete} disabled={isBulkDeleting}>
+            {isBulkDeleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            Delete
+          </Button>
+          <Button variant="ghost" size="icon" className="ml-auto h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setSelectedIds(new Set())}>
+            <X className="size-4" />
+          </Button>
+        </div>
+      ) : (
+        <div className="p-5 border-b flex justify-between items-center bg-muted/20">
+          <h3 className="font-semibold text-lg">Manage Batches</h3>
+          <Button size="sm" className="gap-2" onClick={openCreate}>
+            <Plus className="size-4" /> Create Batch
+          </Button>
+        </div>
+      )}
 
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-          <DialogContent className="sm:max-w-[425px]">
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>{editingId ? 'Edit Batch' : 'Create New Batch'}</DialogTitle>
               <DialogDescription>
@@ -193,13 +251,15 @@ export function BatchesManagerClient({
                 </div>
               </form>
             </Form>
-          </DialogContent>
-        </Dialog>
-      </div>
+        </DialogContent>
+      </Dialog>
 
       <Table>
         <TableHeader className="bg-muted/30">
           <TableRow>
+            <TableHead className="w-[40px]">
+              <Checkbox checked={allPageSelected} onCheckedChange={toggleSelectAll} />
+            </TableHead>
             <TableHead>Year</TableHead>
             <TableHead>Batch Name</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -208,13 +268,16 @@ export function BatchesManagerClient({
         <TableBody>
           {initialBatches.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={3} className="text-center h-32 text-muted-foreground">
+              <TableCell colSpan={4} className="text-center h-32 text-muted-foreground">
                 No batches found. Create one.
               </TableCell>
             </TableRow>
           ) : (
-            initialBatches.map((batch) => (
-              <TableRow key={batch.id}>
+            paginatedBatches.map((batch) => (
+              <TableRow key={batch.id} className={cn(selectedIds.has(batch.id) && 'bg-primary/5')}>
+                <TableCell>
+                  <Checkbox checked={selectedIds.has(batch.id)} onCheckedChange={() => toggleSelect(batch.id)} />
+                </TableCell>
                 <TableCell className="font-medium">{batch.year}</TableCell>
                 <TableCell>{batch.name}</TableCell>
                 <TableCell className="text-right">
@@ -246,6 +309,23 @@ export function BatchesManagerClient({
           )}
         </TableBody>
       </Table>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-5 py-3 border-t text-sm text-muted-foreground">
+          <span>Page {currentPage} of {totalPages} ({initialBatches.length} total)</span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)}>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => p + 1)}>
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+
 
       {/* Confirm/Alert Dialog */}
       {confirmDialog && (
