@@ -200,45 +200,133 @@ export default function AlumniImportClient({ batches }: { batches: Batch[] }) {
 
   if (drafts.length === 0) {
     return (
-      <div className="w-full h-[60vh] border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center p-8 bg-card/50"
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault()
-          setIsDragging(false)
-          const files = e.dataTransfer.files
-          if (files?.length) {
-            handleFileUpload(files[0])
-          }
-        }}
-      >
-        <div className={cn(
-          "flex flex-col items-center justify-center text-center space-y-4 transition-all duration-300",
-          isDragging ? "scale-110" : ""
-        )}>
-          <div className="p-4 bg-primary/10 rounded-full text-primary">
-            <UploadCloud className="size-10" />
-          </div>
-          <div>
-            <h3 className="text-xl font-bold">Upload CSV or Excel File</h3>
-            <p className="text-sm text-muted-foreground mt-2 max-w-sm">
-              Drag and drop your <strong>.csv</strong>, <strong>.xlsx</strong>, or <strong>.xls</strong> file here, or click below to browse. Ensure headers include &apos;Name&apos;.
+      <div className="space-y-6">
+        {/* Import Guide & Template Downloads */}
+        <div className="bg-card border rounded-xl shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
+          {/* Guidelines Section */}
+          <div className="p-6 pb-5">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Info className="size-4 text-primary" />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm">Import Guidelines</h4>
+                <p className="text-[11px] text-muted-foreground leading-tight">Ensure your spreadsheet follows these formatting rules</p>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+              Your file should contain a <strong className="text-foreground">header row</strong> with column names. The system automatically recognizes common variations — for example, <code className="bg-muted px-1.5 py-0.5 rounded text-[12px] font-semibold text-primary">Mobile</code> maps to <code className="bg-muted px-1.5 py-0.5 rounded text-[12px] font-semibold text-primary">Phone</code>, and <code className="bg-muted px-1.5 py-0.5 rounded text-[12px] font-semibold text-primary">About</code> maps to <code className="bg-muted px-1.5 py-0.5 rounded text-[12px] font-semibold text-primary">Description</code>.
             </p>
+            <div>
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Recognized Columns</span>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {[
+                  { col: 'Name / Full Name / Student Name', required: true },
+                  { col: 'Phone / Mobile / Contact', required: false },
+                  { col: 'Description / Bio / About', required: false },
+                ].map(({ col, required }) => (
+                  <span key={col} className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium border",
+                    required
+                      ? "bg-primary/5 border-primary/20 text-primary"
+                      : "bg-muted/50 border-border text-muted-foreground"
+                  )}>
+                    {required && <span className="size-1.5 rounded-full bg-primary" />}
+                    {col}
+                  </span>
+                ))}
+              </div>
+            </div>
           </div>
-          <Input
-            type="file"
-            accept=".csv,.xlsx,.xls"
-            className="hidden"
-            id="csv-upload"
-            onChange={(e) => {
-              if (e.target.files?.length) {
-                handleFileUpload(e.target.files[0])
-              }
-            }}
-          />
-          <Button className="mt-4" onClick={() => document.getElementById('csv-upload')?.click()}>
-            Browse Files
-          </Button>
+
+          {/* Divider */}
+          <div className="border-t" />
+
+          {/* Template Downloads Section */}
+          <div className="p-6 bg-muted/20">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <FileDown className="size-4 text-primary" />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm">Download Templates</h4>
+                <p className="text-[11px] text-muted-foreground leading-tight">Pre-formatted files ready for data entry</p>
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <a href="/templates/alumni_import_template.xlsx" download className="group">
+                <div className="flex items-center gap-4 p-4 rounded-xl border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
+                  <div className="size-12 rounded-xl bg-emerald-500/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/15 transition-colors">
+                    <span className="text-emerald-600 text-[11px] font-extrabold tracking-wider">.XLSX</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold group-hover:text-primary transition-colors">Excel Spreadsheet</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">Recommended — includes formatting</p>
+                  </div>
+                  <FileDown className="size-4 text-muted-foreground ml-auto shrink-0 group-hover:text-primary transition-colors" />
+                </div>
+              </a>
+              <a href="/templates/alumni_import_template.csv" download className="group">
+                <div className="flex items-center gap-4 p-4 rounded-xl border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
+                  <div className="size-12 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0 group-hover:bg-blue-500/15 transition-colors">
+                    <span className="text-blue-600 text-[11px] font-extrabold tracking-wider">.CSV</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold group-hover:text-primary transition-colors">CSV Plain Text</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">Universal compatibility</p>
+                  </div>
+                  <FileDown className="size-4 text-muted-foreground ml-auto shrink-0 group-hover:text-primary transition-colors" />
+                </div>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {/* Upload Dropzone */}
+        <div className={cn(
+          "w-full border-2 border-dashed rounded-xl flex flex-col items-center justify-center p-10 bg-card/50 transition-all duration-300",
+          isDragging ? "border-primary bg-primary/5 scale-[1.01]" : "border-border"
+        )}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setIsDragging(false)
+            const files = e.dataTransfer.files
+            if (files?.length) {
+              handleFileUpload(files[0])
+            }
+          }}
+        >
+          <div className="flex flex-col items-center justify-center text-center space-y-4">
+            <div className={cn(
+              "p-4 rounded-full transition-colors",
+              isDragging ? "bg-primary/20 text-primary" : "bg-primary/10 text-primary"
+            )}>
+              <UploadCloud className="size-10" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold">Upload Your File</h3>
+              <p className="text-sm text-muted-foreground mt-2 max-w-md">
+                Drag and drop your <strong>.csv</strong>, <strong>.xlsx</strong>, or <strong>.xls</strong> file here, or click below to browse.
+              </p>
+            </div>
+            <Input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              className="hidden"
+              id="csv-upload"
+              onChange={(e) => {
+                if (e.target.files?.length) {
+                  handleFileUpload(e.target.files[0])
+                }
+              }}
+            />
+            <Button size="lg" className="mt-2 gap-2" onClick={() => document.getElementById('csv-upload')?.click()}>
+              <UploadCloud className="size-4" />
+              Browse Files
+            </Button>
+          </div>
         </div>
       </div>
     )
@@ -249,49 +337,6 @@ export default function AlumniImportClient({ batches }: { batches: Batch[] }) {
 
   return (
     <div className="space-y-6">
-      {/* Template Download & Guide */}
-      <div className="grid md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
-        <div className="md:col-span-2 bg-muted/30 border border-border/50 rounded-xl p-5 flex flex-col justify-center">
-          <div className="flex items-center gap-2 mb-3">
-            <Info className="size-4 text-primary" />
-            <h4 className="font-bold text-sm uppercase tracking-wider">Import Guidelines</h4>
-          </div>
-          <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-            For a seamless import, ensure your file contains headers such as <code className="text-primary font-bold">Full Name</code>, <code className="text-primary font-bold">Contact Number</code>, and <code className="text-primary font-bold">Professional Bio</code>. Our system will automatically map common variations (e.g., "Mobile" to "Contact Number").
-          </p>
-          <div className="flex flex-wrap gap-4">
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold text-muted-foreground uppercase">Supported Column Mappings</span>
-              <div className="flex flex-wrap gap-1.5">
-                {['Name', 'Phone', 'Description', 'Bio', 'Contact'].map(col => (
-                  <span key={col} className="bg-background border px-2 py-0.5 rounded text-[10px] font-medium">{col}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-card border rounded-xl p-5 shadow-sm flex flex-col items-center justify-center text-center">
-          <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center mb-3">
-            <FileDown className="size-5 text-primary" />
-          </div>
-          <h4 className="font-bold text-sm mb-1">Official Templates</h4>
-          <p className="text-[11px] text-muted-foreground mb-4">Download our pre-formatted templates for a guaranteed successful import.</p>
-          <div className="flex flex-col w-full gap-2">
-            <a href="/templates/alumni_import_template.xlsx" download className="w-full">
-              <Button variant="outline" size="sm" className="w-full h-9 text-xs gap-2">
-                Download Excel (.xlsx)
-              </Button>
-            </a>
-            <a href="/templates/alumni_import_template.csv" download className="w-full">
-              <Button variant="ghost" size="sm" className="w-full h-9 text-xs gap-2 text-muted-foreground hover:text-foreground">
-                Download CSV (.csv)
-              </Button>
-            </a>
-          </div>
-        </div>
-      </div>
-
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between bg-card p-4 rounded-xl border shadow-sm">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => router.push('/admin/alumni')} disabled={isProcessing}>
