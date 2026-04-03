@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -51,6 +52,7 @@ export function BatchesManagerClient({
 }: { 
   initialBatches: Batch[] 
 }) {
+  const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -103,6 +105,7 @@ export function BatchesManagerClient({
         if (res?.error) throw new Error(res.error)
         setFeedback({ type: 'success', message: 'Batch created successfully.' })
       }
+      router.refresh()
       setTimeout(() => {
         setIsOpen(false)
         setFeedback(null)
@@ -124,7 +127,11 @@ export function BatchesManagerClient({
         setActionId(id)
         try {
           const res = await deleteBatch(id)
-          if (res?.error) showAlert('Action Failed', res.error)
+          if (res?.error) {
+            showAlert('Action Failed', res.error)
+          } else {
+            router.refresh()
+          }
         } catch (err: unknown) {
           const error = err as Error
           showAlert('Network Error', error.message || 'Error communicating with server.')
@@ -165,6 +172,7 @@ export function BatchesManagerClient({
           } catch { /* skip */ }
         }
         setIsBulkDeleting(false)
+        router.refresh()
       }
     })
   }

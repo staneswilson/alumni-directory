@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -76,6 +77,7 @@ export function AlumniManagerClient({
   initialStudents: Student[]
   batches: Batch[]
 }) {
+  const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -175,6 +177,7 @@ export function AlumniManagerClient({
         if (res?.error) throw new Error(res.error)
         setFeedback({ type: 'success', message: 'Student created successfully!' })
       }
+      router.refresh()
       setIsOpen(false)
       form.reset()
     } catch (err: unknown) {
@@ -194,7 +197,11 @@ export function AlumniManagerClient({
         setActionId(id)
         try {
           const res = await deleteStudent(id)
-          if (res?.error) showAlert('Action Failed', res.error)
+          if (res?.error) {
+            showAlert('Action Failed', res.error)
+          } else {
+            router.refresh()
+          }
         } catch (err: unknown) {
           const error = err as Error
           showAlert('Network Error', error.message || 'Error communicating with server.')
@@ -258,6 +265,7 @@ export function AlumniManagerClient({
           } catch { /* skip */ }
         }
         setIsBulkDeleting(false)
+        router.refresh()
         if (currentPage > 1 && paginatedStudents.length <= selectedIds.size) {
           setCurrentPage(p => Math.max(1, p - 1))
         }
@@ -286,6 +294,7 @@ export function AlumniManagerClient({
     setSelectedIds(new Set())
     setBulkBatchId('')
     setIsBulkMoving(false)
+    router.refresh()
   }
 
   const existingPhotoUrl = editingId && !photoRemoved
