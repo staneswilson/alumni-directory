@@ -116,30 +116,35 @@ export function AdminSidebar({
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="pb-4">
+      <SidebarFooter className="pb-4 pt-0">
         <SidebarSeparator className="mb-2" />
-        <div className="px-2 space-y-1">
-          <button
-            onClick={() => {
-              setIsOpen(true)
-              setOpenMobile(false)
-            }}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors overflow-hidden"
-          >
-            <KeyRound className="size-4 shrink-0" />
-            <span className="truncate text-left w-full">Change Password</span>
-          </button>
-
-          <form action={signOutAction}>
-            <button
-              type="submit"
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors overflow-hidden"
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={() => {
+                setIsOpen(true)
+                setOpenMobile(false)
+              }}
+              tooltip="Change Password"
             >
-              <LogOut className="size-4 shrink-0" />
-              <span className="truncate text-left w-full">Sign Out</span>
-            </button>
-          </form>
-        </div>
+              <KeyRound className="size-4" />
+              <span>Change Password</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+
+          <SidebarMenuItem>
+            <form action={signOutAction} className="w-full">
+              <SidebarMenuButton
+                type="submit"
+                tooltip="Sign Out"
+                className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="size-4" />
+                <span>Sign Out</span>
+              </SidebarMenuButton>
+            </form>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
 
       {/* Fallback Dialog using plain HTML if Shadcn wasn't fully set up here, or use pure custom overlay since it's just a simple action */}

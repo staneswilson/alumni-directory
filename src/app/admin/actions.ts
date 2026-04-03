@@ -396,8 +396,8 @@ export async function addStudentsBulk(students: Array<{
     const adminClient = createAdminClient()
 
     // Validate RBAC
-    const { data: userRole, error: roleError } = await adminClient
-      .from('user_roles')
+    const { data: userRole, error: roleError } = await supabaseSession
+      .from('admin_roles')
       .select('role, batch_id')
       .eq('user_id', user.id)
       .single()
@@ -423,6 +423,10 @@ export async function addStudentsBulk(students: Array<{
       console.error('Error in addStudentsBulk DB layer:', insertError)
       return { error: `Failed to insert students: ${insertError.message}` }
     }
+
+    revalidatePath('/admin/alumni')
+    revalidatePath('/admin')
+    revalidatePath('/')
 
     return { success: true }
   } catch (error) {

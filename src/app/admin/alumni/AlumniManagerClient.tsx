@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -379,18 +380,20 @@ export function AlumniManagerClient({
     <div className="bg-card rounded-xl border shadow-sm w-full mx-auto">
       {/* Header: toggles between title and selection bar */}
       {selectedIds.size > 0 ? (
-        <div className="p-4 px-5 border-b flex items-center gap-3 bg-muted/30">
-          <Checkbox checked={allPageSelected} onCheckedChange={toggleSelectAll} />
-          <span className="text-sm font-semibold tabular-nums">
-            {selectedIds.size} selected
-          </span>
-          <div className="w-px h-5 bg-border" />
-          <div className="flex items-center gap-1.5">
+        <div className="p-3 sm:p-4 px-4 sm:px-5 border-b flex flex-wrap items-center gap-2 sm:gap-3 bg-muted/30 min-h-14">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Checkbox checked={allPageSelected} onCheckedChange={toggleSelectAll} />
+            <span className="text-sm font-semibold tabular-nums whitespace-nowrap">
+              {selectedIds.size} <span className="hidden xs:inline">selected</span>
+            </span>
+          </div>
+          <div className="hidden sm:block w-px h-5 bg-border" />
+          <div className="flex items-center gap-1.5 flex-1 min-w-[200px] sm:min-w-0">
             <Select value={bulkBatchId} onValueChange={(val) => setBulkBatchId(val || '')}>
-              <SelectTrigger className="h-8 w-[180px] text-xs">
+              <SelectTrigger className="h-8 w-full sm:w-[180px] text-xs bg-background">
                 {bulkBatchId
                   ? (() => { const b = batches.find(b => b.id === bulkBatchId); return b ? `${b.year} — ${b.name}` : 'Select' })()
-                  : <span className="text-muted-foreground">Move to batch…</span>
+                  : <span className="text-muted-foreground truncate">Move to batch…</span>
                 }
               </SelectTrigger>
               <SelectContent>
@@ -399,19 +402,21 @@ export function AlumniManagerClient({
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleBulkMoveBatch} disabled={!bulkBatchId || isBulkMoving}>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs shrink-0" onClick={handleBulkMoveBatch} disabled={!bulkBatchId || isBulkMoving}>
               {isBulkMoving ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowRightLeft className="size-3.5" />}
-              Move
+              <span className="hidden sm:inline">Move</span>
             </Button>
           </div>
-          <div className="w-px h-5 bg-border" />
-          <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleBulkDelete} disabled={isBulkDeleting}>
-            {isBulkDeleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-            Delete
-          </Button>
-          <Button variant="ghost" size="icon" className="ml-auto h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => { setSelectedIds(new Set()); setBulkBatchId('') }}>
-            <X className="size-4" />
-          </Button>
+          <div className="hidden sm:block w-px h-5 bg-border" />
+          <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
+            <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleBulkDelete} disabled={isBulkDeleting}>
+              {isBulkDeleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+              <span className="hidden xs:inline">Delete</span>
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => { setSelectedIds(new Set()); setBulkBatchId('') }}>
+              <X className="size-4" />
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="p-5 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-muted/20">
@@ -442,11 +447,11 @@ export function AlumniManagerClient({
               </SelectContent>
             </Select>
             <div className="flex items-center gap-2">
-              <a href="/admin/alumni/import">
+              <Link href="/admin/alumni/import">
                 <Button variant="outline" size="sm" className="gap-2 h-9">
                   <UploadCloud className="size-4" /> Import File
                 </Button>
-              </a>
+              </Link>
               <Button size="sm" className="gap-2 h-9" onClick={openCreate}>
                 <Plus className="size-4" /> Add Alumni
               </Button>
