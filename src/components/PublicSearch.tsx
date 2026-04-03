@@ -1,12 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Search, Phone, ArrowRight, User2, Link2, Users2, Star, X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Search, Phone, User2, Link2, Users2, Star, ArrowRight, ChevronDown } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { Dialog, DialogContent, DialogTitle, DialogClose } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 type Student = {
@@ -37,11 +35,11 @@ export default function PublicSearch() {
   const [recentBatches, setRecentBatches] = useState<BatchSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [hasSearched, setHasSearched] = useState(false)
-  const [selectedStudentIndex, setSelectedStudentIndex] = useState<number | null>(null)
-  
+  const [batchesLimit, setBatchesLimit] = useState(6)
+
   const supabase = createClient()
 
-  const fetchRecentBatches = async () => {
+  const fetchRecentBatches = useCallback(async () => {
     setLoading(true)
     const { data, error } = await supabase
       .from('batches')
@@ -50,20 +48,23 @@ export default function PublicSearch() {
         students(id, name, photo_url, is_representative)
       `)
       .order('year', { ascending: false })
-      .limit(6)
+      .limit(batchesLimit)
 
     if (!error && data) {
       setRecentBatches(data as unknown as BatchSummary[])
     }
     setLoading(false)
-  }
+  }, [supabase, batchesLimit])
+
+  useEffect(() => {
+    fetchRecentBatches()
+  }, [fetchRecentBatches])
 
   const handleSearch = async (e?: React.FormEvent, overrideQuery?: string, specificBatchId?: string) => {
     if (e) e.preventDefault()
 
     const searchQuery = overrideQuery !== undefined ? overrideQuery : query
 
-    // If empty query, revert to showing recent batches
     if (!searchQuery.trim() && !specificBatchId) {
       setHasSearched(false)
       if (recentBatches.length === 0) fetchRecentBatches()
@@ -79,8 +80,7 @@ export default function PublicSearch() {
     setBatchResults([])
 
     const isNumber = !isNaN(Number(searchQuery.trim()))
-    
-    // If it's a year search and no specific batch is selected, check for multiple batches first
+
     if (isNumber && !specificBatchId) {
       const { data: batches, error: batchError } = await supabase
         .from('batches')
@@ -99,7 +99,6 @@ export default function PublicSearch() {
       }
     }
 
-    // Standard student search or specific batch search
     let supabaseQuery = supabase
       .from('students')
       .select(`
@@ -128,36 +127,6 @@ export default function PublicSearch() {
     setLoading(false)
   }
 
-  // Navigation for Modal
-  const nextStudent = useCallback(() => {
-    if (selectedStudentIndex !== null && selectedStudentIndex < results.length - 1) {
-      setSelectedStudentIndex(selectedStudentIndex + 1)
-    }
-  }, [selectedStudentIndex, results.length])
-
-  const prevStudent = useCallback(() => {
-    if (selectedStudentIndex !== null && selectedStudentIndex > 0) {
-      setSelectedStudentIndex(selectedStudentIndex - 1)
-    }
-  }, [selectedStudentIndex])
-
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (selectedStudentIndex === null) return
-      if (e.key === 'ArrowRight') nextStudent()
-      if (e.key === 'ArrowLeft') prevStudent()
-      if (e.key === 'Escape') setSelectedStudentIndex(null)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedStudentIndex, nextStudent, prevStudent])
-
-  // Load baseline directory on mount
-  useEffect(() => {
-    fetchRecentBatches()
-  }, [])
-
   return (
     <>
       <div className="absolute top-4 right-4 z-[100] pointer-events-auto">
@@ -172,7 +141,7 @@ export default function PublicSearch() {
             <div className="inline-flex items-center justify-center px-3 py-1 rounded-full border border-[#d4af37]/30 bg-[#d4af37]/10 mb-4 md:mb-8 backdrop-blur-md">
               <Link2 className="w-3.5 h-3.5 mr-1.5 text-[#d4af37]" />
               <span className="text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase text-[#d4af37]">
-                Global Connections
+                Official Directory
               </span>
             </div>
 
@@ -215,7 +184,7 @@ export default function PublicSearch() {
                   <span className="animate-pulse">...</span>
                 ) : (
                   <>
-                    <span className="hidden sm:inline">Locate</span>
+                    <span className="hidden sm:inline">Search</span>
                     <ArrowRight strokeWidth={2.5} className="w-4 h-4 sm:ml-2" />
                   </>
                 )}
@@ -235,7 +204,7 @@ export default function PublicSearch() {
                     {batchResults.length > 0 ? `Batches in ${query}` : 'Active Batches'}
                   </div>
                   {batchResults.length > 0 && (
-                    <button 
+                    <button
                       onClick={() => { setBatchResults([]); setHasSearched(false); setQuery(''); }}
                       className="text-xs font-bold text-[#d4af37] hover:underline"
                     >
@@ -249,18 +218,11 @@ export default function PublicSearch() {
                     Array.from({ length: 3 }).map((_, i) => (
                       <div key={i} className="bg-card/60 backdrop-blur-md border border-border rounded-2xl p-6">
                         <div className="flex justify-between items-start mb-4">
-                          <div>
-                            <Skeleton className="h-7 w-16 rounded-md mb-2" />
-                            <Skeleton className="h-4 w-28 rounded-md" />
-                          </div>
-                          <Skeleton className="h-6 w-20 rounded-full" />
+                          <Skeleton className="h-7 w-16 mb-2" />
+                          <Skeleton className="h-4 w-28" />
                         </div>
-                        <div className="pt-4 border-t border-border flex items-center">
-                          <Skeleton className="w-8 h-8 rounded-full mr-3" />
-                          <div>
-                            <Skeleton className="h-3 w-16 rounded mb-1.5" />
-                            <Skeleton className="h-4 w-24 rounded" />
-                          </div>
+                        <div className="pt-4 border-t border-border mt-4">
+                          <Skeleton className="h-8 w-full" />
                         </div>
                       </div>
                     ))
@@ -299,11 +261,11 @@ export default function PublicSearch() {
                                       <User2 className="w-4 h-4" />
                                     </div>
                                   )}
-                                  <div>
-                                    <p className="text-xs text-[#d4af37] font-semibold uppercase tracking-wider flex items-center gap-1">
-                                      <Star className="w-3 h-3" /> Representative
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] sm:text-[11px] text-[#d4af37] font-black uppercase tracking-[0.15em] flex items-center gap-1.5 mb-0.5">
+                                      <Star className="w-2.5 h-2.5" /> Lead Representative
                                     </p>
-                                    <p className="text-sm font-bold text-foreground/80">{rep.name}</p>
+                                    <p className="text-sm sm:text-base font-bold text-foreground/90 truncate">{rep.name}</p>
                                   </div>
                                 </>
                               )
@@ -316,6 +278,27 @@ export default function PublicSearch() {
                     </div>
                   ))}
                 </div>
+
+                {/* ARCHIVE EXPANSION CTA */}
+                {!hasSearched && batchResults.length === 0 && (
+                  <div className="mt-12 flex justify-center animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                    <button
+                      onClick={() => setBatchesLimit(prev => prev + 12)}
+                      className="group relative flex items-center justify-center h-16 px-10 rounded-2xl bg-card/40 backdrop-blur-3xl border border-[#d4af37]/20 hover:border-[#d4af37]/60 transition-all duration-500 hover:shadow-[0_20px_50px_rgba(212,175,55,0.15)] active:scale-95 overflow-hidden"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#d4af37]/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+                      <div className="relative flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-[#d4af37]/10 flex items-center justify-center group-hover:bg-[#d4af37] group-hover:text-black transition-all">
+                          <ChevronDown className="w-5 h-5 group-hover:animate-bounce" />
+                        </div>
+                        <div className="flex flex-col items-start leading-none">
+                          <span className="text-[10px] font-black uppercase tracking-[0.3em] text-[#d4af37] mb-1">Institutional Archives</span>
+                          <span className="text-sm font-bold text-foreground">View Former Cohorts</span>
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -329,100 +312,112 @@ export default function PublicSearch() {
                   </h3>
                   {!loading && results.length > 0 && (
                     <span className="text-[10px] font-bold uppercase tracking-widest text-[#d4af37] bg-[#d4af37]/10 px-3 py-1 rounded-full border border-[#d4af37]/20">
-                      {results.length} found
+                      {results.length} Matches Found
                     </span>
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 lg:gap-x-6 gap-4 sm:gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-6">
                   {loading && results.length === 0 && (
                     Array.from({ length: 6 }).map((_, i) => (
-                      <div key={i} className="flex flex-row items-center bg-card/40 backdrop-blur-md border border-border rounded-2xl overflow-hidden p-4">
-                        <Skeleton className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 rounded-full mr-4" />
-                        <div className="flex flex-col flex-1 w-full space-y-2.5">
-                          <div className="flex justify-between items-center w-full">
-                            <Skeleton className="h-5 w-1/2 rounded-md" />
-                            <Skeleton className="h-5 w-12 rounded-full" />
-                          </div>
-                          <Skeleton className="h-4 w-3/4 rounded-md" />
-                          <Skeleton className="h-3 w-1/3 rounded-md mt-1" />
+                      <div key={i} className="flex flex-row items-stretch bg-card/40 backdrop-blur-md border border-white/5 rounded-[2rem] overflow-hidden p-5 h-44">
+                        <Skeleton className="w-28 h-full shrink-0 rounded-2xl mr-6" />
+                        <div className="flex flex-col flex-1 py-1 space-y-3">
+                          <Skeleton className="h-6 w-1/2 rounded-lg" />
+                          <Skeleton className="h-4 w-full rounded-md" />
                         </div>
                       </div>
                     ))
                   )}
 
-                  {!loading && results.map((student, index) => (
+                  {!loading && results.map((student) => (
                     <div
                       key={student.id}
-                      onClick={() => setSelectedStudentIndex(index)}
-                      className="group cursor-pointer flex flex-row items-center bg-card/60 backdrop-blur-md border border-border rounded-2xl overflow-hidden hover:border-[#d4af37]/60 transition-all duration-300 shadow-sm hover:shadow-md hover:-translate-y-1 p-4"
+                      className="group flex flex-row items-stretch bg-card/40 backdrop-blur-xl border border-white/5 hover:border-[#d4af37]/40 rounded-[2rem] overflow-hidden transition-all duration-500 shadow-xl p-4 sm:p-5 h-auto sm:min-h-[160px] relative"
                     >
-                      <div className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 border-2 border-transparent group-hover:border-[#d4af37]/30 transition-colors duration-300 rounded-full overflow-hidden bg-muted relative flex items-center justify-center mr-4 sm:mr-5">
+                      {/* Photo Section */}
+                      <div className="w-20 h-20 sm:w-28 sm:h-auto shrink-0 relative rounded-2xl overflow-hidden bg-muted group-hover:shadow-2xl transition-all duration-700 mr-5 sm:mr-7">
                         {student.photo_url ? (
                           /* eslint-disable-next-line @next/next/no-img-element */
                           <img
                             src={student.photo_url}
                             alt={student.name}
-                            className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-110"
+                            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                           />
                         ) : (
-                          <User2 strokeWidth={1.5} className="w-8 h-8 opacity-50 text-muted-foreground group-hover:text-[#d4af37]" />
+                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#d4af37]/5 to-muted">
+                            <User2 strokeWidth={1} className="w-10 h-10 opacity-30 text-[#d4af37]" />
+                          </div>
                         )}
                       </div>
 
+                      {/* Content Section */}
                       <div className="flex flex-col flex-1 min-w-0 py-1">
-                        <div className="flex justify-between items-start gap-2 mb-1.5">
-                          <h3 className="text-lg sm:text-xl font-bold tracking-tight text-foreground truncate group-hover:text-[#d4af37] transition-colors flex items-center gap-2">
-                            {student.name}
-                            {student.is_representative && (
-                              <span className="text-[9px] uppercase tracking-widest bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/20 px-2 py-0.5 rounded-full flex items-center gap-1 mt-0.5 whitespace-nowrap">
-                                <Star className="w-2.5 h-2.5" /> Rep
-                              </span>
-                            )}
-                          </h3>
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-[#d4af37] bg-[#d4af37]/10 px-2.5 py-1 rounded-full border border-[#d4af37]/20 shrink-0">
-                            &apos;{String(student.batches.year).slice(-2)}
-                          </span>
+                        <div className="flex justify-between items-start gap-4 mb-2">
+                          <div className="min-w-0">
+                            <h3 className="text-xl font-black tracking-tight text-foreground truncate group-hover:text-[#d4af37] transition-colors leading-tight">
+                              {student.name}
+                            </h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#d4af37]/60">Batch of</span>
+                              <span className="text-[11px] font-black text-foreground/80">{student.batches.year}</span>
+                            </div>
+                          </div>
+                          {student.is_representative && (
+                            <div className="bg-[#d4af37] text-black p-1 rounded-full shadow-lg">
+                              <Star className="w-3 h-3 fill-current" />
+                            </div>
+                          )}
                         </div>
 
                         {student.description ? (
-                          <p className="text-muted-foreground text-sm leading-relaxed font-medium truncate mb-2.5">
+                          <p className="text-muted-foreground/90 text-sm md:text-[15px] leading-relaxed font-medium line-clamp-2 md:line-clamp-3 mb-4 pr-2">
                             {student.description}
                           </p>
                         ) : (
-                          <p className="text-muted-foreground/50 text-sm italic font-medium mb-2.5">
-                            No biography available.
+                          <p className="text-muted-foreground/30 text-xs md:text-sm italic font-medium mb-4">
+                            Biographical data preserved in institutional records.
                           </p>
                         )}
 
-                        <div className="flex items-center mt-auto">
+                        <div className="mt-auto pt-3 border-t border-white/5">
                           {student.phone_number ? (
-                            <span className="text-xs font-bold tracking-wider uppercase text-foreground/70 flex items-center group-hover:text-foreground transition-colors">
-                              <Phone className="w-3 h-3 mr-1.5 text-[#d4af37]" />
-                              {student.phone_number}
-                            </span>
+                            <a
+                              href={`tel:${student.phone_number}`}
+                              className="group/call inline-flex items-center gap-2.5 transition-all text-[#d4af37] hover:text-[#f3cc4a] active:scale-95"
+                            >
+                              <div className="bg-[#d4af37]/10 p-2 rounded-lg group-hover/call:bg-[#d4af37] group-hover/call:text-black transition-all shadow-sm">
+                                <Phone className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="text-[12px] font-black tracking-[0.1em] uppercase truncate">
+                                {student.phone_number}
+                              </span>
+                            </a>
                           ) : (
-                            <span className="text-xs font-bold tracking-wider uppercase text-muted-foreground/40 flex items-center">
-                              <Phone className="w-3 h-3 mr-1.5 opacity-50" />
-                              Unlisted
-                            </span>
+                            <div className="flex items-center gap-2.5 opacity-25">
+                              <div className="bg-white/10 p-2 rounded-lg">
+                                <Phone className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="text-[12px] font-black tracking-[0.1em] uppercase">
+                                Private Connection
+                              </span>
+                            </div>
                           )}
                         </div>
                       </div>
                     </div>
                   ))}
 
-                  {/* Highly Visible Empty State for Search */}
                   {!loading && results.length === 0 && (
-                    <div className="col-span-full w-full py-16 md:py-24 mt-4 text-center bg-card/80 backdrop-blur-xl rounded-2xl border border-border shadow-md">
-                      <Link2 strokeWidth={2.5} className="w-12 h-12 mx-auto text-[#d4af37] mb-6" />
-                      <h3 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground mb-4">No Connections Formed</h3>
-                      <p className="text-muted-foreground font-medium text-base md:text-lg max-w-md mx-auto px-4">
-                        We couldn&apos;t triangulate an alumni matching those parameters in the network.
+                    <div className="col-span-full w-full py-20 text-center bg-card/60 backdrop-blur-2xl rounded-[3rem] border border-white/5 shadow-2xl">
+                      <Search strokeWidth={1} className="w-12 h-12 mx-auto text-[#d4af37]/40 mb-6" />
+                      <h3 className="text-3xl font-black tracking-tighter text-foreground mb-4">No Profiles Located</h3>
+                      <p className="text-muted-foreground/60 font-medium text-lg max-w-xs mx-auto mb-10 leading-relaxed">
+                        We were unable to locate an alumni match based on your search criteria.
                       </p>
-                      <button 
+                      <button
                         onClick={() => { setHasSearched(false); setQuery(''); }}
-                        className="mt-8 text-[#d4af37] font-bold uppercase tracking-widest text-xs border border-[#d4af37]/30 px-6 py-2 rounded-full hover:bg-[#d4af37]/10 transition-colors"
+                        className="px-12 py-4 bg-foreground text-background font-black uppercase tracking-[0.2em] text-[11px] rounded-full hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-black/20"
                       >
                         Reset Search
                       </button>
@@ -431,181 +426,9 @@ export default function PublicSearch() {
                 </div>
               </div>
             )}
-
           </div>
         </div>
       </div>
-
-      {/* PREMIUM STUDENT DETAIL MODAL */}
-      <Dialog open={selectedStudentIndex !== null} onOpenChange={(open) => !open && setSelectedStudentIndex(null)}>
-        <DialogContent className="p-0 border-none bg-transparent shadow-none max-w-5xl w-full h-[100dvh] sm:h-auto overflow-hidden sm:rounded-[2rem] pointer-events-auto">
-          <div className="relative w-full h-full sm:aspect-[1.6/1] bg-card/60 backdrop-blur-3xl sm:border border-white/10 sm:rounded-[2rem] overflow-hidden flex flex-col md:flex-row animate-in fade-in zoom-in-95 duration-500">
-            
-            {/* Immersive Background Layer */}
-            {selectedStudentIndex !== null && results[selectedStudentIndex] && (
-              <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
-                {results[selectedStudentIndex].photo_url ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img 
-                    src={results[selectedStudentIndex].photo_url} 
-                    alt="" 
-                    className="w-full h-full object-cover blur-[100px] scale-150" 
-                  />
-                ) : (
-                  <div className="w-full h-full bg-[#d4af37]/10" />
-                )}
-              </div>
-            )}
-
-            {/* Close Button */}
-            <DialogClose className="absolute top-6 right-6 z-[100] w-12 h-12 rounded-full bg-white/10 hover:bg-[#d4af37] backdrop-blur-xl flex items-center justify-center text-white transition-all duration-500 hover:rotate-90 active:scale-90 border border-white/10 shadow-2xl">
-              <X className="w-6 h-6" />
-            </DialogClose>
-
-            {/* Navigation Arrows (Desktop Only) */}
-            <div className="absolute inset-y-0 left-0 w-24 z-50 flex items-center justify-center pointer-events-none hidden md:flex">
-              {selectedStudentIndex !== null && selectedStudentIndex > 0 && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); prevStudent(); }} 
-                  className="w-14 h-14 rounded-full bg-black/20 hover:bg-[#d4af37] text-white flex items-center justify-center backdrop-blur-xl transition-all duration-300 pointer-events-auto group border border-white/5 active:scale-90"
-                >
-                  <ChevronLeft className="w-7 h-7 group-hover:-translate-x-1 transition-transform" />
-                </button>
-              )}
-            </div>
-            <div className="absolute inset-y-0 right-0 w-24 z-50 flex items-center justify-center pointer-events-none hidden md:flex">
-              {selectedStudentIndex !== null && selectedStudentIndex < results.length - 1 && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); nextStudent(); }} 
-                  className="w-14 h-14 rounded-full bg-black/20 hover:bg-[#d4af37] text-white flex items-center justify-center backdrop-blur-xl transition-all duration-300 pointer-events-auto group border border-white/5 active:scale-90"
-                >
-                  <ChevronRight className="w-7 h-7 group-hover:translate-x-1 transition-transform" />
-                </button>
-              )}
-            </div>
-
-            {selectedStudentIndex !== null && results[selectedStudentIndex] && (() => {
-              const student = results[selectedStudentIndex]
-              return (
-                <>
-                  {/* Left Side / Top: Visual Identity */}
-                  <div className="w-full md:w-[42%] h-[40dvh] md:h-full relative overflow-hidden group z-10 shrink-0">
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent z-10" />
-                    {student.photo_url ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img 
-                        src={student.photo_url} 
-                        alt={student.name} 
-                        className="w-full h-full object-cover animate-in fade-in duration-1000 group-hover:scale-105 transition-transform duration-[3000ms] ease-out" 
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-card to-muted">
-                        <User2 size={160} strokeWidth={0.5} className="text-[#d4af37]/20" />
-                      </div>
-                    )}
-                    
-                    {/* Floating Info Badges Over Photo */}
-                    <div className="absolute bottom-6 left-6 right-6 flex flex-wrap gap-3 items-end z-20">
-                      <div className="bg-white/10 backdrop-blur-xl border border-white/20 text-white px-4 py-2 rounded-2xl flex items-center gap-2.5 shadow-2xl">
-                        <Users2 size={16} className="text-[#d4af37]" />
-                        <span className="text-xs font-black uppercase tracking-[0.2em]">{student.batches.year} • {student.batches.name}</span>
-                      </div>
-                      {student.is_representative && (
-                        <div className="bg-[#d4af37] text-black px-4 py-2 rounded-2xl flex items-center gap-2 shadow-2xl animate-bounce-slow">
-                          <Star size={16} fill="currentColor" />
-                          <span className="text-[10px] font-black uppercase tracking-tighter">Representative</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Right Side / Bottom: Content Hub */}
-                  <div className="w-full md:w-[58%] h-[60dvh] md:h-full flex flex-col z-10 bg-background/40 md:bg-transparent overflow-y-auto md:overflow-visible">
-                    <div className="p-8 md:p-14 flex flex-col flex-1">
-                      <DialogTitle className="sr-only">{student.name}</DialogTitle>
-                      
-                      <div className="mb-8 md:mb-12 animate-in slide-in-from-bottom-8 duration-700">
-                        <div className="w-12 h-1.5 bg-[#d4af37] mb-6 rounded-full" />
-                        <h2 className="text-5xl md:text-7xl font-black tracking-tighter text-foreground leading-[0.95] mb-2 drop-shadow-2xl">
-                          {student.name}
-                        </h2>
-                      </div>
-                      
-                      <div className="space-y-10 flex-1 animate-in fade-in duration-1000 delay-300">
-                        <div className="max-w-lg">
-                          <h4 className="text-[11px] font-black uppercase tracking-[0.4em] text-[#d4af37] mb-4 opacity-80">Historical Record / Bio</h4>
-                          <p className="text-xl md:text-2xl text-muted-foreground/90 leading-relaxed font-medium tracking-tight">
-                            {student.description || "An esteemed member of our alumni network. Their legacy remains preserved within these halls."}
-                          </p>
-                        </div>
-
-                        <div className="pt-8 border-t border-white/5 max-w-lg">
-                           <h4 className="text-[11px] font-black uppercase tracking-[0.4em] text-[#d4af37] mb-5 opacity-80">Direct Channels</h4>
-                           {student.phone_number ? (
-                             <a 
-                               href={`tel:${student.phone_number}`}
-                               className="inline-flex items-center gap-6 bg-foreground text-background px-8 py-5 rounded-[1.5rem] font-black group hover:scale-[1.02] active:scale-95 transition-all shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:shadow-[0_20px_50px_rgba(212,175,55,0.2)]"
-                             >
-                               <div className="bg-[#d4af37] p-2 rounded-lg text-black">
-                                 <Phone className="w-5 h-5" />
-                               </div>
-                               <span className="text-lg">{student.phone_number}</span>
-                               <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-2 transition-transform duration-500" />
-                             </a>
-                           ) : (
-                             <div className="flex items-center gap-4 text-muted-foreground/60 italic font-medium p-4 rounded-2xl bg-white/5 border border-white/5 w-fit">
-                               <div className="bg-white/5 p-2 rounded-lg">
-                                 <Phone className="w-5 h-5 opacity-40" />
-                               </div>
-                               <span>Communication line is private.</span>
-                             </div>
-                           )}
-                        </div>
-                      </div>
-
-                      {/* Integrated Mobile Navigation Footer */}
-                      <div className="mt-12 md:hidden flex items-center justify-between pt-8 border-t border-white/5 pb-8">
-                          <button 
-                            disabled={selectedStudentIndex <= 0}
-                            onClick={prevStudent}
-                            className="flex items-center gap-3 font-black uppercase tracking-widest text-xs disabled:opacity-30 group"
-                          >
-                            <div className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center group-hover:bg-white/5 transition-colors">
-                              <ChevronLeft className="w-5 h-5" />
-                            </div>
-                            Prev
-                          </button>
-                          
-                          <div className="flex flex-col items-center">
-                            <span className="text-[12px] font-black text-[#d4af37] tracking-tighter">
-                              {selectedStudentIndex + 1} <span className="text-muted-foreground/40 font-medium">/</span> {results.length}
-                            </span>
-                            <div className="flex gap-1 mt-1">
-                               {results.map((_, i) => (
-                                 <div key={i} className={cn("h-1 rounded-full transition-all duration-500", i === selectedStudentIndex ? "w-4 bg-[#d4af37]" : "w-1 bg-white/10")} />
-                               ))}
-                            </div>
-                          </div>
-
-                          <button 
-                            disabled={selectedStudentIndex >= results.length - 1}
-                            onClick={nextStudent}
-                            className="flex items-center gap-3 font-black uppercase tracking-widest text-xs disabled:opacity-30 group text-right"
-                          >
-                            Next
-                            <div className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center group-hover:bg-white/5 transition-colors">
-                              <ChevronRight className="w-5 h-5" />
-                            </div>
-                          </button>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )
-            })()}
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   )
 }
