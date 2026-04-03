@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
-import { Loader2, Plus, AlertCircle, CheckCircle2, Trash2, ChevronsUpDown, Check, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { Loader2, Plus, AlertCircle, CheckCircle2, Trash2, ChevronsUpDown, Check, ChevronLeft, ChevronRight, X, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { createAdminUser, deleteAdminRole } from '../actions'
 
 import { Button } from '@/components/ui/button'
@@ -103,11 +103,54 @@ export function UserManagementClient({
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sortConfig, setSortConfig] = useState<{ key: keyof AdminRole | 'batch_name', direction: 'asc' | 'desc' } | null>(null)
   const PAGE_SIZE = 10
 
   function showAlert(title: string, message: string) {
     setConfirmDialog({ isOpen: true, title, message, onConfirm: () => {}, isAlert: true })
   }
+  
+  const handleSort = (key: keyof AdminRole | 'batch_name') => {
+    setSortConfig(current => {
+      if (current && current.key === key) {
+        if (current.direction === 'asc') return { key, direction: 'desc' };
+        return null;
+      }
+      return { key, direction: 'asc' };
+    })
+  }
+
+  const getBatchName = (id: string | null) => {
+    if (!id) return 'Super Access'
+    const b = batches.find(b => b.id === id)
+    return b ? `${b.year} — ${b.name}` : 'Unknown Batch'
+  }
+
+  const filteredAndSortedAdmins = useMemo(() => {
+    let result = initialAdmins;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(a => 
+        (a.email && a.email.toLowerCase().includes(q)) || 
+        a.role.toLowerCase().includes(q) ||
+        getBatchName(a.batch_id).toLowerCase().includes(q)
+      );
+    }
+    if (sortConfig) {
+      result = [...result].sort((a, b) => {
+        if (sortConfig.key === 'batch_name') {
+           const aVal = getBatchName(a.batch_id).toLowerCase()
+           const bVal = getBatchName(b.batch_id).toLowerCase()
+           return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+        }
+        const aVal = String(a[sortConfig.key] || '').toLowerCase();
+        const bVal = String(b[sortConfig.key] || '').toLowerCase();
+        return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      });
+    }
+    return result;
+  }, [initialAdmins, searchQuery, sortConfig, batches])
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -168,21 +211,47 @@ export function UserManagementClient({
     })
   }
 
-  const getBatchName = (id: string | null) => {
-    if (!id) return 'Super Access'
-    const b = batches.find(b => b.id === id)
-    return b ? `${b.year} — ${b.name}` : 'Unknown Batch'
-  }
+  // Removed getBatchName definition here because it was hoisted up
 
   // Pagination
-  const totalPages = Math.max(1, Math.ceil(initialAdmins.length / PAGE_SIZE))
-  const paginatedAdmins = initialAdmins.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(filteredAndSortedAdmins.length / PAGE_SIZE))
+  const paginatedAdmins = filteredAndSortedAdmins.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
   const pageIds = paginatedAdmins.filter(a => a.user_id !== currentUserId).map(a => a.id)
   const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id))
 
-  function toggleSelect(id: string) {
-    setSelectedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
-  }
+  const pageIdsRef = useRef<string[]>([])
+  pageIdsRef.current = pageIds
+  const lastSelectedIdRef = useRef<string | null>(null)
+  const isShiftPressedRef = useRef(false)
+
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => { if (e.key === 'Shift') isShiftPressedRef.current = true }
+    const up = (e: KeyboardEvent) => { if (e.key === 'Shift') isShiftPressedRef.current = false }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
+  }, [])
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (isShiftPressedRef.current && lastSelectedIdRef.current) {
+        const items = pageIdsRef.current
+        const startIdx = items.indexOf(lastSelectedIdRef.current)
+        const endIdx = items.indexOf(id)
+        if (startIdx !== -1 && endIdx !== -1) {
+          const [lo, hi] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)]
+          const willSelect = !prev.has(id)
+          for (let i = lo; i <= hi; i++) { willSelect ? next.add(items[i]) : next.delete(items[i]) }
+          lastSelectedIdRef.current = id
+          return next
+        }
+      }
+      if (next.has(id)) next.delete(id); else next.add(id)
+      lastSelectedIdRef.current = id
+      return next
+    })
+  }, [])
   function toggleSelectAll() {
     if (allPageSelected) {
       setSelectedIds(prev => { const n = new Set(prev); pageIds.forEach(id => n.delete(id)); return n })
@@ -210,12 +279,22 @@ export function UserManagementClient({
 
   return (
     <div className="bg-card rounded-xl border shadow-sm w-full mx-auto">
-      <div className="p-5 border-b flex justify-between items-center bg-muted/20">
-        <h3 className="font-semibold text-lg">System Administrators</h3>
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-          <DialogTrigger render={<Button size="sm" className="gap-2" />}>
-            <Plus className="size-4" /> Add Admin
-          </DialogTrigger>
+      <div className="p-5 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-muted/20">
+        <h3 className="font-semibold text-lg whitespace-nowrap">System Administrators</h3>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+            <div className="relative w-full sm:w-[250px]">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search admins..."
+                className="pl-9 h-9 w-full bg-background"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+              />
+            </div>
+          <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            <DialogTrigger render={<Button size="sm" className="gap-2 h-9" />}>
+                <Plus className="size-4" /> Add Admin
+            </DialogTrigger>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>Add New Administrator</DialogTitle>
@@ -355,6 +434,7 @@ export function UserManagementClient({
           </DialogContent>
         </Dialog>
       </div>
+      </div>
       
       {/* Bulk Action Bar */}
       {selectedIds.size > 0 && (
@@ -396,9 +476,54 @@ export function UserManagementClient({
               <TableHead className="w-[40px]">
                 <Checkbox checked={allPageSelected} onCheckedChange={toggleSelectAll} />
               </TableHead>
-              <TableHead className="w-[300px]">User Account</TableHead>
-              <TableHead>System Role</TableHead>
-              <TableHead>Assignment</TableHead>
+              <TableHead 
+                className={cn(
+                  "w-[300px] cursor-pointer hover:bg-muted/50 transition-colors select-none",
+                  sortConfig?.key === 'email' && "text-foreground bg-muted/30"
+                )} 
+                onClick={() => handleSort('email')}
+              >
+                <div className="flex items-center gap-1.5">
+                  User Account 
+                  {sortConfig?.key === 'email' ? (
+                    sortConfig.direction === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
+                  ) : (
+                    <ArrowUpDown className="size-3.5 text-muted-foreground/50" />
+                  )}
+                </div>
+              </TableHead>
+              <TableHead 
+                className={cn(
+                  "cursor-pointer hover:bg-muted/50 transition-colors select-none",
+                  sortConfig?.key === 'role' && "text-foreground bg-muted/30"
+                )} 
+                onClick={() => handleSort('role')}
+              >
+                <div className="flex items-center gap-1.5">
+                  System Role 
+                  {sortConfig?.key === 'role' ? (
+                    sortConfig.direction === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
+                  ) : (
+                    <ArrowUpDown className="size-3.5 text-muted-foreground/50" />
+                  )}
+                </div>
+              </TableHead>
+              <TableHead 
+                className={cn(
+                  "cursor-pointer hover:bg-muted/50 transition-colors select-none",
+                  sortConfig?.key === 'batch_name' && "text-foreground bg-muted/30"
+                )} 
+                onClick={() => handleSort('batch_name')}
+              >
+                <div className="flex items-center gap-1.5">
+                  Assignment 
+                  {sortConfig?.key === 'batch_name' ? (
+                    sortConfig.direction === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
+                  ) : (
+                    <ArrowUpDown className="size-3.5 text-muted-foreground/50" />
+                  )}
+                </div>
+              </TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -412,7 +537,7 @@ export function UserManagementClient({
             ) : (
               paginatedAdmins.map((admin) => (
                 <TableRow key={admin.id} className={cn(selectedIds.has(admin.id) && 'bg-primary/5')}>
-                  <TableCell>
+                  <TableCell onMouseDown={(e) => { if (e.shiftKey) e.preventDefault() }}>
                     <Checkbox 
                       checked={selectedIds.has(admin.id)} 
                       onCheckedChange={() => toggleSelect(admin.id)} 
@@ -456,7 +581,7 @@ export function UserManagementClient({
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-5 py-3 border-t text-sm text-muted-foreground">
-          <span>Page {currentPage} of {totalPages} ({initialAdmins.length} total)</span>
+          <span>Page {currentPage} of {totalPages} ({filteredAndSortedAdmins.length} total)</span>
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)}>
               <ChevronLeft className="size-4" />

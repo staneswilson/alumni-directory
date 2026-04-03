@@ -1,16 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
-import { UploadCloud, CheckCircle2, AlertCircle, Loader2, ArrowLeft, Image as ImageIcon, Trash2, FileDown, Info } from 'lucide-react'
+import { UploadCloud, CheckCircle2, AlertCircle, Loader2, ArrowLeft, Image as ImageIcon, Trash2, FileDown, Info, ArrowRightLeft, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
-import { addStudent } from '../../actions'
+import { addStudent, addStudentsBulk } from '../../actions'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -35,12 +34,238 @@ type DraftStudent = {
   error_message?: string
 }
 
+const DraftRow = memo(({
+  draft,
+  isSelected,
+  isProcessing,
+  batches,
+  onToggleSelect,
+  onUpdateDraft,
+  onRemoveDraft
+}: {
+  draft: DraftStudent;
+  isSelected: boolean;
+  isProcessing: boolean;
+  batches: Batch[];
+  onToggleSelect: (id: string) => void;
+  onUpdateDraft: (id: string, updates: Partial<DraftStudent>) => void;
+  onRemoveDraft: (id: string) => void;
+}) => {
+  return (
+    <TableRow className={cn(
+      draft.status === 'error' && 'bg-destructive/5',
+      isSelected && 'bg-primary/5'
+    )}>
+      <TableCell className="align-middle px-4" onMouseDown={(e) => { if (e.shiftKey) e.preventDefault() }}>
+        <div className="flex items-center gap-2">
+          {(draft.status === 'pending' || draft.status === 'error') ? (
+            <Checkbox
+              checked={isSelected}
+              onCheckedChange={() => onToggleSelect(draft.id)}
+              disabled={isProcessing}
+            />
+          ) : (
+            <div className="w-4 h-4 shrink-0 flex items-center justify-center">
+              {(draft.status === 'uploading' || draft.status === 'processing') && <Loader2 className="size-4 animate-spin text-primary" />}
+              {draft.status === 'inserted' && <CheckCircle2 className="size-4 text-emerald-500" />}
+            </div>
+          )}
+          {draft.status === 'error' && <span title={draft.error_message}><AlertCircle className="size-4 text-destructive shrink-0 cursor-help" /></span>}
+        </div>
+      </TableCell>
+
+      <TableCell className="align-middle">
+        <div className="relative group w-10 h-10 rounded-full border bg-muted overflow-hidden">
+          <Input
+            type="file"
+            accept="image/*"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+            disabled={isProcessing || draft.status === 'inserted'}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) {
+                const previewUrl = URL.createObjectURL(file)
+                onUpdateDraft(draft.id, { photo_file: file, photo_preview: previewUrl, status: draft.status === 'error' ? 'pending' : draft.status, error_message: '' })
+              }
+            }}
+          />
+          {draft.photo_preview ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={draft.photo_preview} alt="Preview" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+              <ImageIcon className="size-4" />
+            </div>
+          )}
+        </div>
+      </TableCell>
+
+      <TableCell className="align-middle">
+        <Input
+          value={draft.name}
+          onChange={(e) => onUpdateDraft(draft.id, { name: e.target.value, status: draft.status === 'error' ? 'pending' : draft.status, error_message: '' })}
+          disabled={isProcessing || draft.status === 'inserted'}
+          className="h-8"
+        />
+      </TableCell>
+
+      <TableCell className="align-middle">
+        <Select
+          value={draft.batch_id}
+          onValueChange={(val) => onUpdateDraft(draft.id, { batch_id: val || '', status: draft.status === 'error' ? 'pending' : draft.status, error_message: '' })}
+          disabled={isProcessing || draft.status === 'inserted'}
+        >
+          <SelectTrigger className="h-8">
+            {draft.batch_id
+              ? (() => { const b = batches.find(b => b.id === draft.batch_id); return b ? `${b.year} — ${b.name}` : 'Assign' })()
+              : <span className="text-muted-foreground">Assign</span>
+            }
+          </SelectTrigger>
+          <SelectContent>
+            {batches.map(b => (
+              <SelectItem key={b.id} value={b.id}>{b.year} — {b.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </TableCell>
+
+      <TableCell className="align-middle">
+        <Input
+          value={draft.phone_number}
+          onChange={(e) => onUpdateDraft(draft.id, { phone_number: e.target.value })}
+          disabled={isProcessing || draft.status === 'inserted'}
+          className="h-8"
+        />
+      </TableCell>
+
+      <TableCell className="align-middle">
+        <Input
+          value={draft.description}
+          onChange={(e) => onUpdateDraft(draft.id, { description: e.target.value })}
+          disabled={isProcessing || draft.status === 'inserted'}
+          className="h-8"
+        />
+      </TableCell>
+
+      <TableCell className="text-center align-middle">
+        <Checkbox
+          checked={draft.is_representative}
+          onCheckedChange={(checked) => onUpdateDraft(draft.id, { is_representative: !!checked })}
+          disabled={isProcessing || draft.status === 'inserted'}
+        />
+      </TableCell>
+
+      <TableCell className="align-middle">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-destructive hover:bg-destructive/10 h-8 w-8"
+          onClick={() => onRemoveDraft(draft.id)}
+          disabled={isProcessing || draft.status === 'inserted'}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      </TableCell>
+
+    </TableRow>
+  )
+})
+
 export default function AlumniImportClient({ batches }: { batches: Batch[] }) {
   const router = useRouter()
   const [drafts, setDrafts] = useState<DraftStudent[]>([])
   const [globalBatchId, setGlobalBatchId] = useState<string>('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+
+  const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set())
+  const [bulkBatchId, setBulkBatchId] = useState<string>('')
+
+  const selectableDrafts = drafts.filter(d => d.status === 'pending' || d.status === 'error')
+  const selectableDraftIds = selectableDrafts.map(d => d.id)
+  const allSelected = selectableDraftIds.length > 0 && selectableDraftIds.every(id => selectedDraftIds.has(id))
+
+  const selectableDraftIdsRef = useRef<string[]>([])
+  selectableDraftIdsRef.current = selectableDraftIds
+
+  const lastSelectedDraftIdRef = useRef<string | null>(null)
+  const isShiftPressedRef = useRef(false)
+
+  useEffect(() => {
+    const downHandler = (e: KeyboardEvent) => { if (e.key === 'Shift') isShiftPressedRef.current = true }
+    const upHandler = (e: KeyboardEvent) => { if (e.key === 'Shift') isShiftPressedRef.current = false }
+    window.addEventListener('keydown', downHandler)
+    window.addEventListener('keyup', upHandler)
+    return () => {
+      window.removeEventListener('keydown', downHandler)
+      window.removeEventListener('keyup', upHandler)
+    }
+  }, [])
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedDraftIds(prev => {
+      const next = new Set(prev)
+      const isShiftPressed = isShiftPressedRef.current
+      const lastSelectedDraftId = lastSelectedDraftIdRef.current
+
+      if (isShiftPressed && lastSelectedDraftId) {
+        const items = selectableDraftIdsRef.current
+        const startIndex = items.indexOf(lastSelectedDraftId)
+        const endIndex = items.indexOf(id)
+
+        if (startIndex !== -1 && endIndex !== -1) {
+          const lower = Math.min(startIndex, endIndex)
+          const upper = Math.max(startIndex, endIndex)
+
+          const willBeSelected = !prev.has(id) // If clicking an unselected item, select range.
+
+          for (let i = lower; i <= upper; i++) {
+            if (willBeSelected) next.add(items[i])
+            else next.delete(items[i])
+          }
+
+          lastSelectedDraftIdRef.current = id
+          return next
+        }
+      }
+
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+
+      lastSelectedDraftIdRef.current = id
+      return next
+    })
+  }, [])
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelectedDraftIds(new Set())
+    } else {
+      setSelectedDraftIds(new Set(selectableDraftIds))
+    }
+  }
+
+  function handleBulkDelete() {
+    setDrafts(prev => prev.filter(d => !selectedDraftIds.has(d.id)))
+    setSelectedDraftIds(new Set())
+  }
+
+  function handleBulkMoveBatch() {
+    if (!bulkBatchId) return
+    setDrafts(prev => prev.map(d => {
+      if (selectedDraftIds.has(d.id)) {
+        return {
+          ...d,
+          batch_id: bulkBatchId,
+          status: d.status === 'error' ? 'pending' : d.status,
+          error_message: d.error_message === 'Batch is required' ? '' : d.error_message
+        }
+      }
+      return d
+    }))
+    setSelectedDraftIds(new Set())
+    setBulkBatchId('')
+  }
 
   const supabase = createClient()
 
@@ -108,46 +333,48 @@ export default function AlumniImportClient({ batches }: { batches: Batch[] }) {
     }
   }
 
-  const updateDraft = (id: string, updates: Partial<DraftStudent>) => {
+  const updateDraft = useCallback((id: string, updates: Partial<DraftStudent>) => {
     setDrafts(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d))
-  }
+  }, [])
 
   const handleApplyGlobalBatch = () => {
     if (!globalBatchId) return
     setDrafts(prev => prev.map(d => ({ ...d, batch_id: globalBatchId })))
   }
 
-  const handleRemoveDraft = (id: string) => {
+  const handleRemoveDraft = useCallback((id: string) => {
     setDrafts(prev => prev.filter(d => d.id !== id))
-  }
+    setSelectedDraftIds(prev => { const next = new Set(prev); next.delete(id); return next; })
+  }, [])
 
   const processImport = async () => {
     setIsProcessing(true)
     let hasErrors = false
 
-    const draftsToProcess = [...drafts]
-
-    for (let i = 0; i < draftsToProcess.length; i++) {
-      const draft = draftsToProcess[i]
-
-      // Skip already inserted
-      if (draft.status === 'inserted') continue
-
-      // Validation
+    const draftsToProcess = drafts.filter(d => d.status !== 'inserted')
+    
+    // First Validation Pass
+    for (const draft of draftsToProcess) {
       if (!draft.name?.trim()) {
         updateDraft(draft.id, { status: 'error', error_message: 'Name is required' })
         hasErrors = true
-        continue
-      }
-      if (!draft.batch_id) {
+      } else if (!draft.batch_id) {
         updateDraft(draft.id, { status: 'error', error_message: 'Batch is required' })
         hasErrors = true
-        continue
       }
+    }
 
-      updateDraft(draft.id, { status: 'uploading' })
+    if (hasErrors) {
+      setIsProcessing(false)
+      return
+    }
 
-      try {
+    // Set all valid items to uploading
+    draftsToProcess.forEach(draft => updateDraft(draft.id, { status: 'uploading' }))
+
+    try {
+      // Parallel Image Uploads
+      const uploadPromises = draftsToProcess.map(async (draft) => {
         let photoUrl: string | undefined = undefined
 
         if (draft.photo_file) {
@@ -158,7 +385,7 @@ export default function AlumniImportClient({ batches }: { batches: Batch[] }) {
             .from('alumni-photos')
             .upload(fileName, draft.photo_file, { upsert: false })
 
-          if (uploadError) throw new Error(`Image Upload Failed: ${uploadError.message}`)
+          if (uploadError) throw new Error(`Image Upload Failed for ${draft.name}: ${uploadError.message}`)
 
           const { data: publicUrlData } = supabase.storage
             .from('alumni-photos')
@@ -166,28 +393,42 @@ export default function AlumniImportClient({ batches }: { batches: Batch[] }) {
 
           photoUrl = publicUrlData.publicUrl
         }
-
-        updateDraft(draft.id, { status: 'processing' })
-
-        const res = await addStudent({
-          name: draft.name,
-          phone_number: draft.phone_number,
-          description: draft.description,
-          batch_id: draft.batch_id,
-          is_representative: draft.is_representative,
-          photo_url: photoUrl
-        })
-
-        if (res?.error) {
-          throw new Error(res.error)
+        
+        return {
+          id: draft.id,
+          payload: {
+            name: draft.name,
+            phone_number: draft.phone_number,
+            description: draft.description,
+            batch_id: draft.batch_id,
+            is_representative: draft.is_representative,
+            photo_url: photoUrl
+          }
         }
+      })
 
-        updateDraft(draft.id, { status: 'inserted', error_message: '' })
-      } catch (err: unknown) {
-        const error = err as Error
-        updateDraft(draft.id, { status: 'error', error_message: error.message || 'Unknown error' })
-        hasErrors = true
+      const uploadResults = await Promise.all(uploadPromises)
+
+      // Set all into processing state for DB dispatch
+      draftsToProcess.forEach(draft => updateDraft(draft.id, { status: 'processing' }))
+
+      // Massive DB payload compilation
+      const studentsPayload = uploadResults.map(res => res.payload)
+
+      const res = await addStudentsBulk(studentsPayload)
+
+      if (res?.error) {
+        throw new Error(res.error)
       }
+
+      // Mark all processed as inserted
+      draftsToProcess.forEach(draft => updateDraft(draft.id, { status: 'inserted', error_message: '' }))
+      
+    } catch (err: unknown) {
+      const error = err as Error
+      // Revert processing flags to error state globally for simplicity on bulk fail
+      draftsToProcess.forEach(draft => updateDraft(draft.id, { status: 'error', error_message: error.message || 'Unknown network error' }))
+      hasErrors = true
     }
 
     setIsProcessing(false)
@@ -381,12 +622,49 @@ export default function AlumniImportClient({ batches }: { batches: Batch[] }) {
         </div>
       </div>
 
-      <div className="bg-card rounded-xl border shadow-sm overflow-hidden">
+      <div className="bg-card rounded-xl border shadow-sm flex flex-col">
+        {selectedDraftIds.size > 0 && (
+          <div className="p-3 px-4 border-b flex items-center gap-3 bg-primary/5 animate-in fade-in slide-in-from-top-2">
+            <span className="text-sm font-semibold tabular-nums text-primary/80">
+              {selectedDraftIds.size} selected
+            </span>
+            <div className="w-px h-5 bg-border/50" />
+            <div className="flex items-center gap-2">
+              <Select value={bulkBatchId} onValueChange={(val) => setBulkBatchId(val || '')}>
+                <SelectTrigger className="h-8 w-[200px] text-xs bg-background/50 border-primary/20">
+                  {bulkBatchId
+                    ? (() => { const b = batches.find(b => b.id === bulkBatchId); return b ? `${b.year} — ${b.name}` : 'Select Batch' })()
+                    : <span className="text-muted-foreground">Assign batch to selected...</span>
+                  }
+                </SelectTrigger>
+                <SelectContent>
+                  {batches.map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.year} — {b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="secondary" size="sm" className="h-8 gap-1.5 text-xs shadow-sm bg-background border hover:bg-muted" onClick={handleBulkMoveBatch} disabled={!bulkBatchId || isProcessing}>
+                <ArrowRightLeft className="size-3.5" />
+                Apply
+              </Button>
+            </div>
+            <div className="w-px h-5 bg-border/50" />
+            <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleBulkDelete} disabled={isProcessing}>
+              <Trash2 className="size-3.5" />
+              Remove Selected
+            </Button>
+            <Button variant="ghost" size="icon" className="ml-auto h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => { setSelectedDraftIds(new Set()); setBulkBatchId('') }}>
+              <X className="size-4" />
+            </Button>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-muted/30 whitespace-nowrap">
               <TableRow>
-                <TableHead className="w-[60px] text-center">Status</TableHead>
+                <TableHead className="w-[60px] px-4">
+                  <Checkbox checked={allSelected} onCheckedChange={toggleSelectAll} disabled={isProcessing || selectableDraftIds.length === 0} />
+                </TableHead>
                 <TableHead className="w-[80px]">Photo</TableHead>
                 <TableHead className="min-w-[150px]">Full Name</TableHead>
                 <TableHead className="min-w-[180px]">Batch</TableHead>
@@ -398,108 +676,16 @@ export default function AlumniImportClient({ batches }: { batches: Batch[] }) {
             </TableHeader>
             <TableBody>
               {drafts.map((draft) => (
-                <TableRow key={draft.id} className={cn(draft.status === 'error' && 'bg-destructive/5')}>
-                  <TableCell className="text-center align-middle">
-                    {draft.status === 'pending' && <span className="w-2 h-2 rounded-full bg-muted-foreground inline-block" />}
-                    {(draft.status === 'uploading' || draft.status === 'processing') && <Loader2 className="size-4 animate-spin text-primary mx-auto" />}
-                    {draft.status === 'inserted' && <CheckCircle2 className="size-5 text-emerald-500 mx-auto" />}
-                    {draft.status === 'error' && <span title={draft.error_message}><AlertCircle className="size-5 text-destructive mx-auto" /></span>}
-                  </TableCell>
-
-                  <TableCell className="align-middle">
-                    <div className="relative group w-10 h-10 rounded-full border bg-muted overflow-hidden">
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                        disabled={isProcessing || draft.status === 'inserted'}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          if (file) {
-                            const previewUrl = URL.createObjectURL(file)
-                            updateDraft(draft.id, { photo_file: file, photo_preview: previewUrl, status: draft.status === 'error' ? 'pending' : draft.status, error_message: '' })
-                          }
-                        }}
-                      />
-                      {draft.photo_preview ? (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img src={draft.photo_preview} alt="Preview" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                          <ImageIcon className="size-4" />
-                        </div>
-                      )}
-                    </div>
-                  </TableCell>
-
-                  <TableCell className="align-middle">
-                    <Input
-                      value={draft.name}
-                      onChange={(e) => updateDraft(draft.id, { name: e.target.value, status: draft.status === 'error' ? 'pending' : draft.status, error_message: '' })}
-                      disabled={isProcessing || draft.status === 'inserted'}
-                      className="h-8"
-                    />
-                  </TableCell>
-
-                  <TableCell className="align-middle">
-                    <Select
-                      value={draft.batch_id}
-                      onValueChange={(val) => updateDraft(draft.id, { batch_id: val || '', status: draft.status === 'error' ? 'pending' : draft.status, error_message: '' })}
-                      disabled={isProcessing || draft.status === 'inserted'}
-                    >
-                      <SelectTrigger className="h-8">
-                        {draft.batch_id
-                          ? (() => { const b = batches.find(b => b.id === draft.batch_id); return b ? `${b.year} — ${b.name}` : 'Assign' })()
-                          : <span className="text-muted-foreground">Assign</span>
-                        }
-                      </SelectTrigger>
-                      <SelectContent>
-                        {batches.map(b => (
-                          <SelectItem key={b.id} value={b.id}>{b.year} — {b.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-
-                  <TableCell className="align-middle">
-                    <Input
-                      value={draft.phone_number}
-                      onChange={(e) => updateDraft(draft.id, { phone_number: e.target.value })}
-                      disabled={isProcessing || draft.status === 'inserted'}
-                      className="h-8"
-                    />
-                  </TableCell>
-
-                  <TableCell className="align-middle">
-                    <Input
-                      value={draft.description}
-                      onChange={(e) => updateDraft(draft.id, { description: e.target.value })}
-                      disabled={isProcessing || draft.status === 'inserted'}
-                      className="h-8"
-                    />
-                  </TableCell>
-
-                  <TableCell className="text-center align-middle">
-                    <Checkbox
-                      checked={draft.is_representative}
-                      onCheckedChange={(checked) => updateDraft(draft.id, { is_representative: !!checked })}
-                      disabled={isProcessing || draft.status === 'inserted'}
-                    />
-                  </TableCell>
-
-                  <TableCell className="align-middle">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive hover:bg-destructive/10 h-8 w-8"
-                      onClick={() => handleRemoveDraft(draft.id)}
-                      disabled={isProcessing || draft.status === 'inserted'}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </TableCell>
-
-                </TableRow>
+                <DraftRow
+                  key={draft.id}
+                  draft={draft}
+                  isSelected={selectedDraftIds.has(draft.id)}
+                  isProcessing={isProcessing}
+                  batches={batches}
+                  onToggleSelect={toggleSelect}
+                  onUpdateDraft={updateDraft}
+                  onRemoveDraft={handleRemoveDraft}
+                />
               ))}
             </TableBody>
           </Table>
@@ -508,3 +694,4 @@ export default function AlumniImportClient({ batches }: { batches: Batch[] }) {
     </div>
   )
 }
+

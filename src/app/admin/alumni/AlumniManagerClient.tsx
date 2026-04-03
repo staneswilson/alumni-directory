@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
-import { Loader2, Plus, AlertCircle, CheckCircle2, Trash2, Edit2, ChevronsUpDown, Check, UploadCloud, Star, ChevronLeft, ChevronRight, X, ArrowRightLeft } from 'lucide-react'
+import { Loader2, Plus, AlertCircle, CheckCircle2, Trash2, Edit2, ChevronsUpDown, Check, UploadCloud, Star, ChevronLeft, ChevronRight, X, ArrowRightLeft, Search, ArrowUpDown, Filter, ArrowUp, ArrowDown } from 'lucide-react'
 import { createClient } from '@/utils/supabase/client'
 import { addStudent, updateStudent, deleteStudent } from '../actions'
 
@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -90,11 +91,53 @@ export function AlumniManagerClient({
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [bulkBatchId, setBulkBatchId] = useState('')
   const [isBulkMoving, setIsBulkMoving] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sortConfig, setSortConfig] = useState<{ key: keyof Student | 'batch', direction: 'asc' | 'desc' } | null>(null)
+  const [filterBatchId, setFilterBatchId] = useState<string>('all')
+  
   const PAGE_SIZE = 10
 
   function showAlert(title: string, message: string) {
     setConfirmDialog({ isOpen: true, title, message, onConfirm: () => { }, isAlert: true })
   }
+  
+  const handleSort = (key: keyof Student | 'batch') => {
+    setSortConfig(current => {
+      if (current && current.key === key) {
+        if (current.direction === 'asc') return { key, direction: 'desc' };
+        return null;
+      }
+      return { key, direction: 'asc' };
+    })
+  }
+
+  const filteredAndSortedStudents = useMemo(() => {
+    let result = initialStudents;
+    if (filterBatchId && filterBatchId !== 'all') {
+      result = result.filter(s => s.batch_id === filterBatchId);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(s => 
+        s.name.toLowerCase().includes(q) || 
+        (s.phone_number && s.phone_number.toLowerCase().includes(q)) ||
+        (s.description && s.description.toLowerCase().includes(q))
+      );
+    }
+    if (sortConfig) {
+      result = [...result].sort((a, b) => {
+        if (sortConfig.key === 'batch') {
+          const batchA = batches.find(bt => bt.id === a.batch_id)?.year || 0;
+          const batchB = batches.find(bt => bt.id === b.batch_id)?.year || 0;
+          return sortConfig.direction === 'asc' ? batchA - batchB : batchB - batchA;
+        }
+        const aVal = String(a[sortConfig.key] || '').toLowerCase();
+        const bVal = String(b[sortConfig.key] || '').toLowerCase();
+        return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      });
+    }
+    return result;
+  }, [initialStudents, searchQuery, sortConfig, batches, filterBatchId])
 
   const supabase = createClient()
 
@@ -218,19 +261,44 @@ export function AlumniManagerClient({
   }
 
   // Pagination
-  const totalPages = Math.max(1, Math.ceil(initialStudents.length / PAGE_SIZE))
-  const paginatedStudents = initialStudents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(filteredAndSortedStudents.length / PAGE_SIZE))
+  const paginatedStudents = filteredAndSortedStudents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
   const pageIds = paginatedStudents.map(s => s.id)
   const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id))
 
-  function toggleSelect(id: string) {
+  const pageIdsRef = useRef<string[]>([])
+  pageIdsRef.current = pageIds
+  const lastSelectedIdRef = useRef<string | null>(null)
+  const isShiftPressedRef = useRef(false)
+
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => { if (e.key === 'Shift') isShiftPressedRef.current = true }
+    const up = (e: KeyboardEvent) => { if (e.key === 'Shift') isShiftPressedRef.current = false }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
+  }, [])
+
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (isShiftPressedRef.current && lastSelectedIdRef.current) {
+        const items = pageIdsRef.current
+        const startIdx = items.indexOf(lastSelectedIdRef.current)
+        const endIdx = items.indexOf(id)
+        if (startIdx !== -1 && endIdx !== -1) {
+          const [lo, hi] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)]
+          const willSelect = !prev.has(id)
+          for (let i = lo; i <= hi; i++) { willSelect ? next.add(items[i]) : next.delete(items[i]) }
+          lastSelectedIdRef.current = id
+          return next
+        }
+      }
+      if (next.has(id)) next.delete(id); else next.add(id)
+      lastSelectedIdRef.current = id
       return next
     })
-  }
+  }, [])
 
   function toggleSelectAll() {
     if (allPageSelected) {
@@ -346,17 +414,43 @@ export function AlumniManagerClient({
           </Button>
         </div>
       ) : (
-        <div className="p-5 border-b flex justify-between items-center bg-muted/20">
-          <h3 className="font-semibold text-lg">Alumni Profiles</h3>
-          <div className="flex items-center gap-2">
-            <a href="/admin/alumni/import">
-              <Button variant="outline" size="sm" className="gap-2">
-                <UploadCloud className="size-4" /> Import File
+        <div className="p-5 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-muted/20">
+          <h3 className="font-semibold text-lg whitespace-nowrap">Alumni Profiles</h3>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+            <div className="relative w-full sm:w-[250px]">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search alumni..."
+                className="pl-9 h-9 w-full bg-background"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+              />
+            </div>
+            <Select value={filterBatchId} onValueChange={(val) => { setFilterBatchId(val || 'all'); setCurrentPage(1); }}>
+              <SelectTrigger className="h-9 w-full sm:w-[200px] gap-1.5">
+                <Filter className="size-3.5 text-muted-foreground shrink-0" />
+                {filterBatchId && filterBatchId !== 'all'
+                  ? (() => { const b = batches.find(b => b.id === filterBatchId); return b ? `${b.year} — ${b.name}` : 'All Batches' })()
+                  : <span className="text-muted-foreground">All Batches</span>
+                }
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Batches</SelectItem>
+                {batches.map(b => (
+                  <SelectItem key={b.id} value={b.id}>{b.year} — {b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-2">
+              <a href="/admin/alumni/import">
+                <Button variant="outline" size="sm" className="gap-2 h-9">
+                  <UploadCloud className="size-4" /> Import File
+                </Button>
+              </a>
+              <Button size="sm" className="gap-2 h-9" onClick={openCreate}>
+                <Plus className="size-4" /> Add Alumni
               </Button>
-            </a>
-            <Button size="sm" className="gap-2" onClick={openCreate}>
-              <Plus className="size-4" /> Add Alumni
-            </Button>
+            </div>
           </div>
         </div>
       )}
@@ -596,23 +690,54 @@ export function AlumniManagerClient({
               <TableHead className="w-[40px]">
                 <Checkbox checked={allPageSelected} onCheckedChange={toggleSelectAll} />
               </TableHead>
-              <TableHead>Alumni Name</TableHead>
-              <TableHead>Batch</TableHead>
+              <TableHead 
+                className={cn(
+                  "cursor-pointer hover:bg-muted/50 transition-colors select-none",
+                  sortConfig?.key === 'name' && "text-foreground bg-muted/30"
+                )} 
+                onClick={() => handleSort('name')}
+              >
+                <div className="flex items-center gap-1.5">
+                  Alumni Name 
+                  {sortConfig?.key === 'name' ? (
+                    sortConfig.direction === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
+                  ) : (
+                    <ArrowUpDown className="size-3.5 text-muted-foreground/50" />
+                  )}
+                </div>
+              </TableHead>
+              <TableHead 
+                className={cn(
+                  "cursor-pointer hover:bg-muted/50 transition-colors select-none",
+                  sortConfig?.key === 'batch' && "text-foreground bg-muted/30"
+                )} 
+                onClick={() => handleSort('batch')}
+              >
+                <div className="flex items-center gap-1.5">
+                  Batch 
+                  {sortConfig?.key === 'batch' ? (
+                    sortConfig.direction === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
+                  ) : (
+                    <ArrowUpDown className="size-3.5 text-muted-foreground/50" />
+                  )}
+                </div>
+              </TableHead>
               <TableHead>Contact</TableHead>
+              <TableHead>Bio</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {initialStudents.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center h-32 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center h-32 text-muted-foreground">
                   No alumni found in the system.
                 </TableCell>
               </TableRow>
             ) : (
               paginatedStudents.map((student) => (
                 <TableRow key={student.id} className={cn(selectedIds.has(student.id) && 'bg-primary/5')}>
-                  <TableCell>
+                  <TableCell onMouseDown={(e) => { if (e.shiftKey) e.preventDefault() }}>
                     <Checkbox checked={selectedIds.has(student.id)} onCheckedChange={() => toggleSelect(student.id)} />
                   </TableCell>
                   <TableCell className="font-medium whitespace-nowrap">
@@ -630,6 +755,22 @@ export function AlumniManagerClient({
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {student.phone_number || '-'}
+                  </TableCell>
+                  <TableCell className="max-w-[200px]">
+                    {student.description ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <span className="cursor-help line-clamp-1 text-sm text-muted-foreground truncate block">{student.description}</span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-sm whitespace-normal p-3 shadow-md" side="top">
+                            <p className="text-sm">{student.description}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <span className="text-muted-foreground/50 text-sm italic">-</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right whitespace-nowrap">
                     <Button
@@ -665,7 +806,7 @@ export function AlumniManagerClient({
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-5 py-3 border-t text-sm text-muted-foreground">
-          <span>Page {currentPage} of {totalPages} ({initialStudents.length} total)</span>
+          <span>Page {currentPage} of {totalPages} ({filteredAndSortedStudents.length} total)</span>
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)}>
               <ChevronLeft className="size-4" />

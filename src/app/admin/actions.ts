@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/utils/supabase/server'
+import { createAdminClient } from '@/utils/supabase/admin'
 import { revalidatePath } from 'next/cache'
 
 export async function addStudent(data: {
@@ -32,7 +33,9 @@ export async function addStudent(data: {
     return { error: 'RBAC Violation: You can only add students to your assigned batch.' }
   }
 
-  const { error: insertError } = await supabase
+  const adminClient = createAdminClient()
+
+  const { error: insertError, data: insertedData } = await adminClient
     .from('students')
     .insert([
       {
@@ -44,14 +47,16 @@ export async function addStudent(data: {
         is_representative: data.is_representative ?? false
       }
     ])
+    .select()
 
-  if (insertError) {
+  if (insertError || !insertedData || insertedData.length === 0) {
     console.error('Insert error', insertError)
     return { error: 'Failed to insert student record. Please try again.' }
   }
 
   revalidatePath('/admin')
   revalidatePath('/admin/add-alumni')
+  revalidatePath('/admin/alumni')
   revalidatePath('/')
 
   return { success: true }
@@ -75,7 +80,9 @@ export async function addBatch(data: { year: number; name: string }) {
     return { error: 'Only super admins can create batches.' }
   }
 
-  const { error: insertError } = await supabase
+  const adminClient = createAdminClient()
+
+  const { error: insertError } = await adminClient
     .from('batches')
     .insert([{ year: data.year, name: data.name }])
 
@@ -121,16 +128,16 @@ export async function getAdminRoles() {
     return { error: 'Failed to fetch admins.' }
   }
 
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!serviceRoleKey) {
-    return { admins: admins.map(a => ({ ...a, email: a.user_id })) } // Fallback
+  let authData = null
+  try {
+    const adminClient = createAdminClient()
+    const response = await adminClient.auth.admin.listUsers()
+    authData = response.data
+  } catch (e) {
+    // Fallback if env vars are missing
+    return { admins: admins.map(a => ({ ...a, email: a.user_id })) }
   }
 
-  const adminAuthClient = createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  })
-
-  const { data: authData } = await adminAuthClient.auth.admin.listUsers()
   const usersList = authData?.users || []
 
   const formattedAdmins = admins.map(admin => {
@@ -162,7 +169,9 @@ export async function addAdminRole(data: { user_id: string; role: string; batch_
     return { error: 'Only super admins can manage roles.' }
   }
 
-  const { error: insertError } = await supabase
+  const adminClient = createAdminClient()
+
+  const { error: insertError } = await adminClient
     .from('admin_roles')
     .insert([{ user_id: data.user_id, role: data.role, batch_id: data.batch_id || null }])
 
@@ -201,7 +210,9 @@ export async function deleteAdminRole(id: string) {
     return { error: 'You cannot remove your own administrative role.' }
   }
 
-  const { error: deleteError } = await supabase
+  const adminClient = createAdminClient()
+
+  const { error: deleteError } = await adminClient
     .from('admin_roles')
     .delete()
     .eq('id', id)
@@ -223,7 +234,9 @@ export async function deleteBatch(id: string) {
   const { data: roleData } = await supabase.from('admin_roles').select('role').eq('user_id', user.id).single()
   if (!roleData || roleData.role !== 'super_admin') return { error: 'Only super admins can delete batches.' }
 
-  const { error } = await supabase.from('batches').delete().eq('id', id)
+  const adminClient = createAdminClient()
+
+  const { error } = await adminClient.from('batches').delete().eq('id', id)
   if (error) return { error: 'Failed to delete batch. It might be linked to alumni.' }
   
   revalidatePath('/admin/batches')
@@ -239,7 +252,9 @@ export async function updateBatch(id: string, data: { year: number; name: string
   const { data: roleData } = await supabase.from('admin_roles').select('role').eq('user_id', user.id).single()
   if (!roleData || roleData.role !== 'super_admin') return { error: 'Only super admins can update batches.' }
 
-  const { error } = await supabase.from('batches').update({ year: data.year, name: data.name }).eq('id', id)
+  const adminClient = createAdminClient()
+
+  const { error } = await adminClient.from('batches').update({ year: data.year, name: data.name }).eq('id', id)
   if (error) return { error: 'Failed to update batch.' }
   
   revalidatePath('/admin/batches')
@@ -269,8 +284,14 @@ export async function deleteStudent(id: string) {
     }
   }
 
-  const { error } = await supabase.from('students').delete().eq('id', id)
-  if (error) return { error: 'Failed to delete student.' }
+  const adminClient = createAdminClient()
+
+  const { error, data: deletedData } = await adminClient.from('students').delete().eq('id', id).select()
+  
+  if (error || !deletedData || deletedData.length === 0) {
+    console.error('Delete student failed: ', error, deletedData)
+    return { error: 'Failed to delete student.' }
+  }
   
   revalidatePath('/admin/alumni')
   return { success: true }
@@ -296,23 +317,20 @@ export async function updateStudent(id: string, data: { name: string; descriptio
     }
   }
 
-  const { error } = await supabase.from('students').update(data).eq('id', id)
-  if (error) return { error: 'Failed to update student.' }
+  const adminClient = createAdminClient()
+
+  const { error, data: updatedData } = await adminClient.from('students').update(data).eq('id', id).select()
+  
+  if (error || !updatedData || updatedData.length === 0) {
+    console.error('Update student failed: ', error, updatedData)
+    return { error: 'Failed to update student.' }
+  }
   
   revalidatePath('/admin/alumni')
   return { success: true }
 }
 
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-
 export async function createAdminUser(data: { email: string; password: string; role: string; batch_id?: string }) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  
-  if (!serviceRoleKey) {
-    return { error: 'SUPABASE_SERVICE_ROLE_KEY is missing from environment variables. Cannot create auth users.' }
-  }
-
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Unauthorized.' }
@@ -320,11 +338,14 @@ export async function createAdminUser(data: { email: string; password: string; r
   const { data: roleData } = await supabase.from('admin_roles').select('role').eq('user_id', user.id).single()
   if (!roleData || roleData.role !== 'super_admin') return { error: 'Only super admins can create admin users.' }
 
-  const adminAuthClient = createSupabaseClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  })
+  let adminClient
+  try {
+    adminClient = createAdminClient()
+  } catch (e) {
+    return { error: 'Admin client initialization failed. Missing environment variables.' }
+  }
 
-  const { data: newUser, error: authError } = await adminAuthClient.auth.admin.createUser({
+  const { data: newUser, error: authError } = await adminClient.auth.admin.createUser({
     email: data.email,
     password: data.password,
     email_confirm: true,
@@ -332,12 +353,12 @@ export async function createAdminUser(data: { email: string; password: string; r
 
   if (authError) return { error: authError.message }
 
-  const { error: insertError } = await supabase.from('admin_roles').insert([
+  const { error: insertError } = await adminClient.from('admin_roles').insert([
     { user_id: newUser.user.id, role: data.role, batch_id: data.batch_id || null }
   ])
 
   if (insertError) {
-    await adminAuthClient.auth.admin.deleteUser(newUser.user.id)
+    await adminClient.auth.admin.deleteUser(newUser.user.id)
     return { error: 'Failed to assign role to the new user. Identity rolled back.' }
   }
 
@@ -354,4 +375,60 @@ export async function updateAdminPassword(password: string) {
   if (error) return { error: error.message }
 
   return { success: true }
+}
+
+export async function addStudentsBulk(students: Array<{
+  batch_id: string
+  name: string
+  description?: string
+  phone_number?: string
+  photo_url?: string | null
+  is_representative?: boolean
+}>) {
+  try {
+    const supabaseSession = await createClient()
+    const { data: { user }, error: authError } = await supabaseSession.auth.getUser()
+
+    if (authError || !user) {
+      return { error: 'Unauthorized.' }
+    }
+
+    const adminClient = createAdminClient()
+
+    // Validate RBAC
+    const { data: userRole, error: roleError } = await adminClient
+      .from('user_roles')
+      .select('role, batch_id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (roleError || !userRole) {
+      return { error: 'Access denied. Administrator privileges required.' }
+    }
+
+    if (userRole.role === 'batch_admin') {
+      const allowedBatchId = userRole.batch_id
+      const invalidStudents = students.filter(s => s.batch_id !== allowedBatchId)
+      if (invalidStudents.length > 0) {
+         return { error: 'Access denied. You can only import students for your assigned batch.' }
+      }
+    }
+
+    // Attempt bulk insert
+    const { error: insertError } = await adminClient
+      .from('students')
+      .insert(students)
+
+    if (insertError) {
+      console.error('Error in addStudentsBulk DB layer:', insertError)
+      return { error: `Failed to insert students: ${insertError.message}` }
+    }
+
+    return { success: true }
+  } catch (error) {
+    if (error instanceof Error) {
+      return { error: error.message }
+    }
+    return { error: 'An unknown error occurred while importing students.' }
+  }
 }
